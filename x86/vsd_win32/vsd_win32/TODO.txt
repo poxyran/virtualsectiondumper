@@ -1,5 +1,6 @@
 TODO:
 
+[] Full UNICODE support.
 [x] Agregar ordenamiento a la ventana donde se listan las secciones virtuales
 [] Cambiar la función RegisterHotKey por Accelerators
 [x] Revisar por que CopyDataToClipboard a veces crashea
@@ -10,3 +11,4 @@ TODO:
 [x] Agregar la posibilidad de "Dump Full"
 [x] Agregar la posibilidad de "Dump Partial"
 [] Versión de 64 bits
+[] Code refactoring :P
