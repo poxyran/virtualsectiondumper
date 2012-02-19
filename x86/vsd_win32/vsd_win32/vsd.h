@@ -26,37 +26,37 @@ void ValidateResult(int retval)
 {
 	if(retval == OPENPROCESS_ERROR)
 	{
-		MessageBox(NULL, TEXT("Couldn't open process"), "Ups!", MB_ICONERROR);
+		MessageBox(NULL, TEXT("Couldn't open process"), TEXT("Ups!"), MB_ICONERROR);
 	}
 	else
 	{
 		if(retval == VIRTULALLOC_ERROR)
 		{
-			MessageBox(NULL, TEXT("Coulnd't allocate memory"), "Ups!", MB_ICONERROR);
+			MessageBox(NULL, TEXT("Coulnd't allocate memory"), TEXT("Ups!"), MB_ICONERROR);
 		}
 		else
 		{
 			if(retval == READPROCESSMEMORY_ERROR)
 			{
-				MessageBox(NULL, TEXT("Couldn't read memory"), "Ups!", MB_ICONERROR);
+				MessageBox(NULL, TEXT("Couldn't read memory"), TEXT("Ups!"), MB_ICONERROR);
 			}
 			else
 			{
 				if(retval == WRITEFILE_ERROR)
 				{
-					MessageBox(NULL, TEXT("Couldn't write file"), "Ups!", MB_ICONERROR);
+					MessageBox(NULL, TEXT("Couldn't write file"), TEXT("Ups!"), MB_ICONERROR);
 				}
 				else
 				{
 					if(retval == RTN_OK)
 					{
-						MessageBox(NULL, TEXT("File successfully created!"), "Yeah!", MB_ICONINFORMATION);
+						MessageBox(NULL, TEXT("File successfully created!"), TEXT("Yeah!"), MB_ICONINFORMATION);
 					}
 					else
 					{
 						if(retval == RTN_ERROR)
 						{
-							MessageBox(NULL, TEXT("Error during operation!"), "Ups!", MB_ICONINFORMATION);
+							MessageBox(NULL, TEXT("Error during operation!"), TEXT("Ups!"), MB_ICONINFORMATION);
 						}
 					}
 				}
@@ -1806,22 +1806,22 @@ BOOL CALLBACK DumpRegionProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 								}
 								else
 								{
-									MessageBox(hDlg, TEXT("The value entered as Size is not a valid hex number"), "Ups!", MB_ICONERROR);
+									MessageBox(hDlg, TEXT("The value entered as Size is not a valid hex number"), TEXT("Ups!"), MB_ICONERROR);
 								}
 							}
 							else
 							{
-								MessageBox(hDlg, TEXT("You didn't enter the Size"), "Are you kidding?", MB_ICONERROR);
+								MessageBox(hDlg, TEXT("You didn't enter the Size"), TEXT("Are you kidding?"), MB_ICONERROR);
 							}
 						}
 						else
 						{
-							MessageBox(hDlg, TEXT("The value entered as Address is not a valid hex number"), "Ups!", MB_ICONERROR);
+							MessageBox(hDlg, TEXT("The value entered as Address is not a valid hex number"), TEXT("Ups!"), MB_ICONERROR);
 						}
 					}
 					else
 					{
-						MessageBox(hDlg, TEXT("You didn't enter an Address"), "Are you kidding?", MB_ICONERROR);
+						MessageBox(hDlg, TEXT("You didn't enter an Address"), TEXT("Are you kidding?"), MB_ICONERROR);
 					}
 					break;
 
