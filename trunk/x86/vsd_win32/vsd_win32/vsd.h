@@ -269,7 +269,7 @@ BOOL PastePEHeader(HANDLE hProc, DWORD ImageBase, char* szFile)
 	DWORD FileSize, BytesRead, BytesWritten, PE32HeaderSize, OldProtect;
 	PIMAGE_DOS_HEADER DOSHeader;
 	PIMAGE_NT_HEADERS32 PEHeader32;
-	LPVOID ReadBuffer;
+	LPVOID ReadBuffer, ReadBuffer2;
 
 	// open the file we want to get the PEHeader from
 	hFile = CreateFile(szFile, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
@@ -292,61 +292,67 @@ BOOL PastePEHeader(HANDLE hProc, DWORD ImageBase, char* szFile)
 				PE32HeaderSize = DOSHeader->e_lfanew + sizeof(IMAGE_DOS_HEADER) + sizeof(IMAGE_NT_HEADERS32);
 
 				// frees the allocated buffer
-				VirtualFree(ReadBuffer, 0, MEM_RELEASE);
+				//VirtualFree(ReadBuffer, 0, MEM_RELEASE);
 
 				// set the file pointer to the beginning of the file
-				SetFilePointer(hFile, NULL, NULL, FILE_BEGIN);
+				SetFilePointer(hFile, DOSHeader->e_lfanew, NULL, FILE_BEGIN);
 
 				// allocate a new buffer to hold the original PEHeader data
-				ReadBuffer = VirtualAlloc(NULL, PE32HeaderSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+				ReadBuffer2 = VirtualAlloc(NULL, PE32HeaderSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
 
-				if(ReadBuffer)
+				if(ReadBuffer2)
 				{
 					// read just the PEHeader data from the original file
-					if(ReadFile(hFile, ReadBuffer, PE32HeaderSize, &BytesRead, NULL))
+					if(ReadFile(hFile, ReadBuffer2, PE32HeaderSize, &BytesRead, NULL))
 					{
 						// change the page permissions to the memory where the original
 						// PEHeader will be written
 						if(VirtualProtectEx(hProc, (LPVOID)ImageBase, PE32HeaderSize, PAGE_READWRITE, &OldProtect))
 						{
 							// write the original PEHeader data to the process' PEHeader
-							if(WriteProcessMemory(hProc, (LPVOID)((ULONG_PTR)ImageBase + DOSHeader->e_lfanew), ReadBuffer, PE32HeaderSize, &BytesWritten))
+							if(WriteProcessMemory(hProc, (LPVOID)((ULONG_PTR)ImageBase + DOSHeader->e_lfanew), ReadBuffer2, PE32HeaderSize, &BytesWritten))
 							{
 								// restore old permissions
 								VirtualProtectEx(hProc, (LPVOID)ImageBase, PE32HeaderSize, OldProtect, &OldProtect);
 
 								// release handles and allocated memory
 								VirtualFree(ReadBuffer, 0, MEM_RELEASE);
+								VirtualFree(ReadBuffer2, 0, MEM_RELEASE);
 								CloseHandle(hFile);
 								return TRUE;
 							}
 							else
 							{
 								VirtualFree(ReadBuffer, 0, MEM_RELEASE);
+								VirtualFree(ReadBuffer2, 0, MEM_RELEASE);
 								CloseHandle(hFile);
 							}
 						}
 						else
 						{
 							VirtualFree(ReadBuffer, 0, MEM_RELEASE);
+							VirtualFree(ReadBuffer2, 0, MEM_RELEASE);
 							CloseHandle(hFile);
 						}
 					}
 					else
 					{
 						VirtualFree(ReadBuffer, 0, MEM_RELEASE);
+						VirtualFree(ReadBuffer2, 0, MEM_RELEASE);
 						CloseHandle(hFile);
 					}
 				}
 				else
 				{
 					VirtualFree(ReadBuffer, 0, MEM_RELEASE);
+					VirtualFree(ReadBuffer2, 0, MEM_RELEASE);
 					CloseHandle(hFile);
 				}
 			}
 			else
 			{
 				VirtualFree(ReadBuffer, 0, MEM_RELEASE);
+				VirtualFree(ReadBuffer2, 0, MEM_RELEASE);
 				CloseHandle(hFile);
 			}
 		}
