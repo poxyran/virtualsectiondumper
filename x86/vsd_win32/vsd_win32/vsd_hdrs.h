@@ -68,17 +68,17 @@ LPFN_ISWOW64PROCESS fnIsWow64Process;
 #define IDM_REFRESH 10004
 #define IDM_DELPROCESS 10005
 
-#define HOTKEY_CTRL_C 12345
-#define HOTKEY_CTRL_A 12346
-#define HOTKEY_CTRL_R 12335
-#define HOTKEY_SHIFT_DEL 12337
+//#define HOTKEY_CTRL_C 12345
+//#define HOTKEY_CTRL_A 12346
+//#define HOTKEY_CTRL_R 12335
+//#define HOTKEY_SHIFT_DEL 12337
 
-#define HOTKEY_CTRL_C2 0xDEAD
-#define HOTKEY_CTRL_A2 0xBEEF
+//#define HOTKEY_CTRL_C2 0xDEAD
+//#define HOTKEY_CTRL_A2 0xBEEF
 
-#define CTRL_C 0x43
-#define CTRL_A 0x41
-#define CTRL_R 0x52
+//#define CTRL_C 0x43
+//#define CTRL_A 0x41
+//#define CTRL_R 0x52
 
 #define NO_SORT 0
 #define SORT_ASCENDING 1
