@@ -8,6 +8,7 @@ TODO:
 [] Agregar un Dialog con información extra del proceso (Path, command line, user, etc)
 [] Agregar una ventana para listar los modulos cargados por cada proceso.
 [] Agregar una ventana para listar todos los handles abiertos por el proceso.
+[] Permitir escribir bytes arbitrarios tanto en la memoria de un modulo como en la del proceso mismo.
 [] Permitir que con ENTER se listen las secciones virtuales correspondientes al proceso sobre el cual se tiene foco en el listview
 [x] Agregar la posibilidad de "Dump regions"
 [x] Agregar la posibilidad de "Dump Full"
