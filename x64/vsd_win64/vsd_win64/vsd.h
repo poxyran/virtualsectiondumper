@@ -262,12 +262,10 @@ BOOL FixHeader(HANDLE hProc, ULONGLONG ImageBase, char* szFile)
 					OnFileSectionHeader = (PIMAGE_SECTION_HEADER)((ULONG_PTR)OnFileSectionHeader + sizeof(IMAGE_SECTION_HEADER));
 				}
 
-				if(WriteProcessMemory(hProc, (LPVOID)((ULONGLONG)RemoteSectionHeaderAddrs + ImageBase), &SectionHeader, SectionHeaderSize, &(SIZE_T)BytesWritten))
-				{
-					CloseHandle(hFile);
-					VirtualFree(ReadBuffer, NULL, MEM_RELEASE);
-					return TRUE;
-				}
+				CloseHandle(hFile);
+				VirtualFree(ReadBuffer, NULL, MEM_RELEASE);
+				return TRUE;
+
 			}
 			else
 			{
