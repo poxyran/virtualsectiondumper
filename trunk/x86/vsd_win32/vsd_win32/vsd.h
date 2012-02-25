@@ -240,12 +240,9 @@ BOOL FixHeader(HANDLE hProc, DWORD ImageBase, char* szFile)
 					OnFileSectionHeader = (PIMAGE_SECTION_HEADER)((ULONG_PTR)OnFileSectionHeader + sizeof(IMAGE_SECTION_HEADER));
 				}
 
-				if(WriteProcessMemory(hProc, RemoteSectionHeaderAddrs, &SectionHeader, SectionHeaderSize, &BytesWritten))
-				{
-					CloseHandle(hFile);
-					VirtualFree(ReadBuffer, NULL, MEM_RELEASE);
-					return TRUE;
-				}
+				CloseHandle(hFile);
+				VirtualFree(ReadBuffer, NULL, MEM_RELEASE);
+				return TRUE;
 			}
 			else
 			{
