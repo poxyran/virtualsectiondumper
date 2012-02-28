@@ -136,7 +136,6 @@ void InitCommonCtrlsEx(void);
 void CreateColumns(HWND);
 void EnumRegions(HWND);
 void CreateColumnsRegionLV(HWND);
-void Hack(HWND);
 void ShowAboutInfo(HWND);
 void SetHotKey(WORD);
 void CopyDataToClipBoard(HWND, int);
