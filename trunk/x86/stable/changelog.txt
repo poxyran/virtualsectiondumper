@@ -1,0 +1,12 @@
+/**************************************************
+TESTIIIIIIIIIIIIIIIIIIIIIIIING VSDUPDATE.EXE
+***************************************************/
+v1.1 - 16/02/2012
+--
+
+- Fixed a bug in the PastePEHeader() function when calculating the offset of the PE Header.
+
+v1.0 - 16/02/2012
+--
+
+- First stable release
