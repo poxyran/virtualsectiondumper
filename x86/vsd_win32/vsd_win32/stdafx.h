@@ -1,7 +1,7 @@
-/*
+/* 
 $Id$
 
-Virtual Section Dumper v1.0 x86
+Virtual Section Dumper v2.0 x86
 
 Copyright (C) 2012 +NCR/CRC! [ReVeRsEr] http://crackinglandia.blogspot.com
 
