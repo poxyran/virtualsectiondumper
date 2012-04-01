@@ -1,7 +1,7 @@
-/*
+/* 
 $Id$
 
-Virtual Section Dumper v1.0 x86
+Virtual Section Dumper v2.0 x86
 
 Copyright (C) 2012 +NCR/CRC! [ReVeRsEr] http://crackinglandia.blogspot.com
 
@@ -24,44 +24,16 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 // function definitions
 void ValidateResult(int retval)
 {
-	if(retval == OPENPROCESS_ERROR)
+	switch(retval)
 	{
-		MessageBox(NULL, TEXT("Couldn't open process"), TEXT("Ups!"), MB_ICONERROR);
-	}
-	else
-	{
-		if(retval == VIRTULALLOC_ERROR)
-		{
-			MessageBox(NULL, TEXT("Coulnd't allocate memory"), TEXT("Ups!"), MB_ICONERROR);
-		}
-		else
-		{
-			if(retval == READPROCESSMEMORY_ERROR)
-			{
-				MessageBox(NULL, TEXT("Couldn't read memory"), TEXT("Ups!"), MB_ICONERROR);
-			}
-			else
-			{
-				if(retval == WRITEFILE_ERROR)
-				{
-					MessageBox(NULL, TEXT("Couldn't write file"), TEXT("Ups!"), MB_ICONERROR);
-				}
-				else
-				{
-					if(retval == RTN_OK)
-					{
-						MessageBox(NULL, TEXT("File successfully created!"), TEXT("Yeah!"), MB_ICONINFORMATION);
-					}
-					else
-					{
-						if(retval == RTN_ERROR)
-						{
-							MessageBox(NULL, TEXT("Error during operation!"), TEXT("Ups!"), MB_ICONINFORMATION);
-						}
-					}
-				}
-			}
-		}
+		case OPENPROCESS_ERROR: MessageBox(NULL, TEXT("Couldn't open process"), TEXT("Ups!"), MB_ICONERROR);break;
+		case VIRTULALLOC_ERROR: MessageBox(NULL, TEXT("Coulnd't allocate memory"), TEXT("Ups!"), MB_ICONERROR);break;
+		case READPROCESSMEMORY_ERROR: MessageBox(NULL, TEXT("Couldn't read memory"), TEXT("Ups!"), MB_ICONERROR);break;
+		case WRITEFILE_ERROR: MessageBox(NULL, TEXT("Couldn't write file"), TEXT("Ups!"), MB_ICONERROR);break;
+		case RTN_OK: MessageBox(NULL, TEXT("File successfully created!"), TEXT("Yeah!"), MB_ICONINFORMATION);break;
+		case RTN_ERROR: MessageBox(NULL, TEXT("Error during operation!"), TEXT("Ups!"), MB_ICONINFORMATION);break;
+		case SAVEDIALOGNOCHOICE: break;
+		default: MessageBox(NULL, TEXT("Unknown error, this should never happened :("), TEXT("Ups!"), MB_ICONERROR);break;
 	}
 }
 
@@ -69,13 +41,15 @@ BOOL CALLBACK PartialDumpProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam
 {
 	HWND hAddrEdit, hSizeEdit;
 	HANDLE hProc = INVALID_HANDLE_VALUE;
-	DWORD cbNeeded;
-	MODULEINFO ModInfo;
 	char szText[MAX_PATH];
+	int retval;
 
 	switch(uMsg)
 	{
 		case WM_INITDIALOG:
+			sprintf_s(szText, sizeof(szText), "[Process: %s - PID: %d]", szCaption, iGlobalPid);
+			SetWindowText(hDlg, szText);
+
 			// get the edits handles
 			hAddrEdit = GetDlgItem(hDlg, DPADDRESSEDIT);
 			hSizeEdit = GetDlgItem(hDlg, DPSIZEEDIT);
@@ -88,12 +62,6 @@ BOOL CALLBACK PartialDumpProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam
 			hProc = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, iGlobalPid);
 			if(hProc != NULL)
 			{
-				EnumProcessModules(hProc, hMods, sizeof(hMods), &cbNeeded);
-				GetModuleInformation(hProc, hMods[0], &ModInfo, sizeof(ModInfo));
-
-				RegionAddr = (DWORD)ModInfo.lpBaseOfDll;
-				RegionSize = ModInfo.SizeOfImage;
-
 				sprintf_s(szText, sizeof(szText), "%08X", RegionAddr);
 				Edit_SetText(hAddrEdit, szText);
 
@@ -132,7 +100,14 @@ BOOL CALLBACK PartialDumpProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam
 										{
 											RegionSize = strtol(szText, NULL, 16);
 
-											int retval = DumpMemoryRegion((void*)RegionAddr, RegionSize, DUMPPARTIAL, FALSE, FALSE, hDlg);
+											if(DumpingModule)
+											{
+												retval = MyDumpModuleFunction((void*)RegionAddr, RegionSize, szGlobalModuleName, DUMPPARTIAL, FALSE, FALSE, hDlg);
+											}
+											else
+											{
+												retval = DumpMemoryRegion((void*)RegionAddr, RegionSize, DUMPPARTIAL, FALSE, FALSE, hDlg);
+											}
 
 											// test to see if there was an error
 											ValidateResult(retval);
@@ -178,7 +153,7 @@ BOOL FixHeader(HANDLE hProc, DWORD ImageBase, char* szFile)
 	PIMAGE_SECTION_HEADER SectionHeader;
 	PIMAGE_SECTION_HEADER OnFileSectionHeader;
 	LPVOID RemoteSectionHeaderAddrs, ReadBuffer;
-	DWORD nSections, BytesWritten, BytesRead, FileSize;
+	DWORD nSections, BytesRead, FileSize;
 	SIZE_T SectionHeaderSize;
 	//char szText[MAX_PATH];
 
@@ -243,6 +218,7 @@ BOOL FixHeader(HANDLE hProc, DWORD ImageBase, char* szFile)
 				CloseHandle(hFile);
 				VirtualFree(ReadBuffer, NULL, MEM_RELEASE);
 				return TRUE;
+
 			}
 			else
 			{
@@ -258,6 +234,919 @@ BOOL FixHeader(HANDLE hProc, DWORD ImageBase, char* szFile)
 	}
 
 	return FALSE; 
+}
+
+DWORD GetThreadWin32StartAddress(HANDLE hThread)
+{
+	NTSTATUS ntStatus;
+	HANDLE hCurrentProcess;
+	HANDLE DupHandle;
+	DWORD dwWin32StartAddress;
+
+	if(NtQueryInformationThread == NULL) return 0;
+
+	hCurrentProcess = GetCurrentProcess();
+
+	if(!DuplicateHandle(hCurrentProcess, hThread, hCurrentProcess, &DupHandle, THREAD_QUERY_INFORMATION, FALSE, 0))
+	{
+		SetLastError(ERROR_ACCESS_DENIED);
+		return 0;
+	}
+
+	ntStatus = NtQueryInformationThread(DupHandle, ThreadQuerySetWin32StartAddress, &dwWin32StartAddress, sizeof(DWORD), NULL);
+
+	CloseHandle(DupHandle);
+	CloseHandle(hCurrentProcess);
+
+	if(!NT_SUCCESS(ntStatus)) return 0;
+	
+	return dwWin32StartAddress;
+}
+
+int EnumProcessThreads(HWND MyhList)
+{
+	//THREADENTRY32 te;
+	//HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+	LVITEM lvItem;
+	int iCount = 0;
+	unsigned int i;
+	//char szText[MAX_PATH];
+	NTSTATUS status;
+	PSYSTEM_PROCESS_INFORMATION pInfo;
+	PSYSTEM_THREAD_INFORMATION pThreads;
+	LPVOID pBuffer = NULL;
+	ULONG pBufferSize = 0x10000, ThreadCount;
+	HANDLE hThread;
+
+	pBuffer = (PSYSTEM_PROCESS_INFORMATION)malloc(pBufferSize);
+
+	if(pBuffer != NULL)
+	{
+		while ((status = NtQuerySystemInformation(SystemProcessesAndThreadsInformation, pBuffer, pBufferSize, NULL)) == STATUS_INFO_LENGTH_MISMATCH)
+		pBuffer = (PSYSTEM_PROCESS_INFORMATION)realloc(pBuffer, pBufferSize *= 2);
+
+		pInfo = (PSYSTEM_PROCESS_INFORMATION)pBuffer;
+
+		// we iterate over all the entries that NtQuerySystemInformation returned.
+		// if pInfo->NextEntryDelta is equal to 0, then, we finish the iterations
+		for(;;)
+		{
+			// if the current entry belongs to our process
+			if(pInfo->ProcessId == iGlobalPid)
+			{
+				// we take the corresponding Thread information
+				ThreadCount = pInfo->ThreadCount;
+				pThreads = pInfo->Threads;
+
+				// we iterate over every single thread in the array
+				for(i = 0; i < ThreadCount; i++)
+				{
+					memset(&lvItem, 0, sizeof(lvItem));
+
+					lvItem.mask = LVIF_TEXT | LVIF_PARAM;
+					lvItem.cchTextMax = MAX_PATH;
+					lvItem.iItem = lvItem.lParam = i;
+					lvItem.iSubItem = 0;
+
+					if(ListView_InsertItem(MyhList, &lvItem) != -1)
+					{
+						//sprintf_s(szText, sizeof(szText), "%08X", pThreads[i].ClientId.UniqueThread);
+						//ListView_SetItemText(MyhList, i, THREAD_ID_COL, szText);
+						ListView_SetItemText(MyhList, i, THREAD_ID_COL, (LPSTR)DwordToHex(pThreads[i].ClientId.UniqueThread));
+
+						//sprintf_s(szText, sizeof(szText), "%08X", pThreads[i].BasePriority);
+						//ListView_SetItemText(MyhList, i, THREAD_PRIORITY_COL, szText);
+						ListView_SetItemText(MyhList, i, THREAD_PRIORITY_COL, (LPSTR)DwordToHex(pThreads[i].BasePriority));
+						
+						//sprintf_s(szText, sizeof(szText), "%08x", pThreads[i].StartAddress);
+						//ListView_SetItemText(MyhList, i, THREAD_STARTADDRESS_COL, szText);
+												
+						ListView_SetItemText(MyhList, i, THREAD_STATE_COL, (LPSTR)GetWaitReasonString(pThreads[i].WaitReason));
+
+						ListView_SetItemText(MyhList, i, THREAD_TEB_COL, (LPSTR)DwordToHex((DWORD)GetThreadTebAddress(pThreads[i].ClientId.UniqueThread)));
+
+						hThread = OpenThread(THREAD_ALL_ACCESS, FALSE, pThreads[i].ClientId.UniqueThread);
+						if(hThread != NULL)
+						{
+							ListView_SetItemText(MyhList, i, THREAD_STARTADDRESS_COL, (LPSTR)DwordToHex((DWORD)GetThreadWin32StartAddress(hThread)));
+							CloseHandle(hThread);
+						}
+					}
+					else
+					{
+						MessageBox(NULL, TEXT("Couldn't insert item!"), TEXT("Ups!"), MB_ICONERROR);
+					}
+				}
+			}
+
+			if(pInfo->NextEntryDelta == 0)
+				break;
+
+			pInfo = (PSYSTEM_PROCESS_INFORMATION)(((PUCHAR)pInfo) + pInfo->NextEntryDelta);
+
+		}//while(pInfo->NextEntryDelta != 0);
+		
+		free(pBuffer);
+	}
+	//if(hSnap != INVALID_HANDLE_VALUE)
+	//{
+	//	te.dwSize = sizeof(te);
+	//	if(Thread32First(hSnap, &te))
+	//	{
+	//		do
+	//		{
+	//			if(te.dwSize >= FIELD_OFFSET(THREADENTRY32, th32OwnerProcessID) + sizeof(te.th32OwnerProcessID))
+	//			{
+	//				if(te.th32OwnerProcessID  == iGlobalPid)
+	//				{
+	//					memset(&lvItem, 0, sizeof(lvItem));
+
+	//					lvItem.mask = LVIF_TEXT | LVIF_PARAM;
+	//					lvItem.cchTextMax = MAX_PATH;
+	//					lvItem.iItem = lvItem.lParam = iCount;
+	//					lvItem.iSubItem = 0;
+
+	//					if(ListView_InsertItem(MyhList, &lvItem) != -1)
+	//					{
+	//						sprintf_s(szText, sizeof(szText), "%08X", te.th32ThreadID);
+	//						ListView_SetItemText(MyhList, iCount, THREAD_ID_COL, szText);
+
+	//						sprintf_s(szText, sizeof(szText), "%08X", te.tpBasePri);
+	//						ListView_SetItemText(MyhList, iCount, THREAD_PRIORITY_COL, szText);
+	//					}
+	//					else
+	//					{
+	//						MessageBox(NULL, TEXT("Couldn't insert item!"), TEXT("Ups!"), MB_ICONERROR);
+	//					}
+	//					
+	//					iCount++;
+	//				}
+	//			}
+	//			
+	//			te.dwSize = sizeof(te);
+	//		}
+	//		while(Thread32Next(hSnap, &te));
+	//	}
+
+	//	CloseHandle(hSnap);
+	//}
+
+	return RTN_OK;
+}
+
+const char* GetWaitReasonString(unsigned long WaitReason)
+{
+	switch(WaitReason)
+	{
+		case Executive: return "Wait: Executive";
+		case FreePage: return "Wait: FreePage";
+		case PageIn: return "Wait: PageIn";
+		case PoolAllocation: return "Wait: PoolAllocation";
+		case DelayExecution: return "Wait: DelayExecution";
+		case Suspended: return "Wait: Suspended";
+		case UserRequest: return "Wait: UserRequest";
+		case WrExecutive: return "Wait: WrExecutive";
+		case WrFreePage: return "Wait: WrFreePage";
+		case WrPageIn: return "Wait: WrPageIn";
+		case WrPoolAllocation: return "Wait: WrPoolAllocation";
+		case WrDelayExecution: return "Wait: WrDelayExecution";
+		case WrSuspended: return "Wait: WrSuspended";
+		case WrUserRequest: return "Wait: WrUserRequest";
+		case WrEventPair: return "Wait: WrEventPair";
+		case WrQueue: return "Wait: WrQueue";
+		case WrLpcReceive: return "Wait: WrLpcReceive";
+		case WrLpcReply: return "Wait: WrLpcReply";
+		case WrVirtualMemory: return "Wait: WrVirtualMemory";
+		case WrPageOut: return "Wait: WrPageOut";
+		case WrRendezvous: return "Wait: WrRendezvous";
+		case Spare2: return "Wait: Spare2";
+		case Spare3: return "Wait: Spare3";
+		case Spare4: return "Wait: Spare4";
+		case Spare5: return "Wait: Spare5";
+		case WrCalloutStack: return "Wait: WrCalloutStack";
+		case WrKernel: return "Wait: WrKernel";
+		case WrResource: return "Wait: WrResource";
+		case WrPushLock: return "Wait: WrPushLock";
+		case WrMutex: return "Wait: WrMutex";
+		case WrQuantumEnd: return "Wait: WrQuantumEnd";
+		case WrDispatchInt: return "Wait: WrDispatchInt";
+		case WrPreempted: return "Wait: WrPreempted";
+		case WrYieldExecution: return "Wait: WrYieldExecution";
+		case WrFastMutex: return "Wait: WrFastMutex";
+		case WrGuardedMutex: return "Wait: WrGuardedMutex";
+		case WrRundown: return "Wait: WrRundown";
+		case MaximumWaitReason: return "Wait: MaximumWaitReason";
+		default: return "Wait: Unknown";
+	}
+}
+
+void CreateColumnsThreadsLV(HWND MyhList)
+{
+	int index;
+	LVCOLUMN lvCol = {0};
+	char* lvColTitles[] = {"Thread ID", "Priority", "TEB Address", "Start Address", "State"};
+	char szFmtText[MAX_PATH];
+
+	for(index = 0; index < 5; index++)
+	{
+		lvCol.mask = LVCF_TEXT | LVCF_SUBITEM | LVCF_WIDTH | LVCF_IDEALWIDTH;
+		lvCol.pszText = lvColTitles[index];
+		
+		lvCol.cx = lvCol.cxIdeal = 101;
+
+		lvCol.cchTextMax = strlen(lvColTitles[index]);
+
+		if(ListView_InsertColumn(MyhList, index, &lvCol) == -1)
+		{
+			sprintf_s(szFmtText, sizeof(szFmtText), "Couldn't insert column %d", index);
+			MessageBox(MyGetWindowOwner(MyhList), szFmtText, TEXT("Ups!"), MB_ICONERROR);
+		}
+	}
+}
+
+HWND PopulateThreadsLV(HWND hDlg)
+{
+	HWND hMyList;
+
+	hMyList = GetDlgItem(hDlg, THREADSLV);
+
+	if(hMyList)
+	{
+		/*
+			ComCtl32.dll version 6 has problems with LVS_EX_GRIDLINES when its scrolled vertically.
+			An option to avoid this issue is to disable the LVS_EX_GRIDLINES style.
+			Another option is to disable the Windows XP Style.
+
+			* http://stackoverflow.com/questions/1416793/listview-gridlines-issue
+			* http://www.ureader.com/msg/1484143.aspx
+		*/
+		ListView_SetExtendedListViewStyle(hMyList, LVS_EX_GRIDLINES | LVS_EX_FULLROWSELECT | LVS_SORTASCENDING);
+		
+		CreateColumnsThreadsLV(hMyList);
+		EnumProcessThreads(hMyList);
+	}
+
+	return hMyList;
+}
+
+void MyResumeThread(HWND MyhList, int iPos)
+{
+	HANDLE hThread;
+	DWORD tid;
+	char szTid[9];
+
+	ListView_GetItemText(MyhList, iPos, THREAD_ID_COL, szTid, sizeof(szTid));
+						
+	tid = strtol(szTid, 0, 16);
+
+	hThread = OpenThread(THREAD_SUSPEND_RESUME, FALSE, tid);
+	if(hThread)
+	{
+		if(ResumeThread(hThread) == -1)
+		{
+			MessageBox(NULL, TEXT("Couldn't resume thread"), TEXT("Ups!"), MB_ICONERROR);
+		}
+		CloseHandle(hThread);
+	}
+}
+
+void MySuspendThread(HWND MyhList, int iPos)
+{
+	HANDLE hThread;
+	DWORD tid;
+	char szTid[9];
+
+	ListView_GetItemText(MyhList, iPos, THREAD_ID_COL, szTid, sizeof(szTid));
+						
+	tid = strtol(szTid, 0, 16);
+
+	hThread = OpenThread(THREAD_SUSPEND_RESUME, FALSE, tid);
+	// before we suspend the thread, we must be sure that the thread is not
+	// already suspended, so, we first ask for its suspended count. If this value is
+	// greater than 0, then, the thread is suspended.
+	if(GetSuspendThreadCount(hThread) > 0)
+	{
+		MessageBox(NULL, TEXT("Thread is already suspended!"), TEXT("Be careful!"), MB_ICONINFORMATION);
+	}
+	else
+	{
+		if(hThread)
+		{
+			if(SuspendThread(hThread) == -1)
+			{
+				MessageBox(NULL, TEXT("Couldn't suspend thread"), TEXT("Ups!"), MB_ICONERROR);
+			}
+			CloseHandle(hThread);
+		}
+	}
+}
+
+void MyTerminateThread(HWND MyhList, int iPos)
+{
+	HANDLE hThread;
+	DWORD tid, ExitCode;
+	char szTid[9];
+
+	ListView_GetItemText(MyhList, iPos, THREAD_ID_COL, szTid, sizeof(szTid));
+						
+	tid = strtol(szTid, 0, 16);
+
+	hThread = OpenThread(THREAD_TERMINATE, FALSE, tid);
+	if(hThread)
+	{
+		GetExitCodeThread(hThread, &ExitCode);
+		if(TerminateThread(hThread, ExitCode) == 0)
+		{
+			MessageBox(NULL, TEXT("Couldn't terminate thread"), TEXT("Ups!"), MB_ICONERROR);
+		}
+		CloseHandle(hThread);
+	}
+}
+
+BOOL CALLBACK Filter(HWND hWin, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+	switch(uMsg)
+	{
+		// we are interested in the WM_CHAR message
+		case WM_CHAR:
+			if((wParam >= 0x30 && wParam <= 0x39) || (wParam >= 'a' && wParam <= 'f') || (wParam >= 'A' && wParam <= 'F') || LOBYTE(wParam) == VK_BACK)
+			{
+				if(wParam >= 'a' && wParam <= 'f')
+					wParam = wParam - 0x20;
+				return CallWindowProc((WNDPROC)wndproc, hWin, uMsg, wParam, lParam);
+			}
+			break;
+
+		default:
+			// here, we dispatch the rest of the messages
+			return CallWindowProc((WNDPROC)wndproc, hWin, uMsg, wParam, lParam);
+	}
+
+	// return the original uMsg parameter received from the calling procedure
+	return uMsg;
+}
+
+BOOL CALLBACK PatchProcessDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+	char szText[MAX_PATH];
+	DWORD AddrsToPatch, BytesRead, OldProtect, BytesWritten;
+	int NroBytesToPatch, retval;
+	static int aux_NroBytesToPatch;
+	HANDLE hProc;
+	int* m_buffer, *hexOriginalBytes, *binBytes;
+
+	switch(uMsg)
+	{
+		case WM_INITDIALOG:
+			SetClassLongPtr(hDlg, GCLP_HICON, (long)LoadIcon(0, IDI_INFORMATION));
+
+			sprintf_s(szText, sizeof(szText), "Patch process - [Process: %s - PID: %d]", szCaption, iGlobalPid);
+			SetWindowText(hDlg, szText);
+
+			// set the text limit in the edit holding the address to patch
+			hAddrToPatch = GetDlgItem(hDlg, EDT_ADDRESS2PATCH);
+			if(hAddrToPatch)
+			{
+				// limit the text size the user can fill in the edit
+				Edit_LimitText(hAddrToPatch, 8);
+
+				// retrive the current windows procedure handle
+				wndproc = GetWindowLong(hAddrToPatch, GWL_WNDPROC);
+				// set a hook to a new windows procedure (callback) for this control
+				SetWindowLong(hAddrToPatch, GWL_WNDPROC, (LONG)&Filter);
+			}
+
+			hNewBytes = GetDlgItem(hDlg, EDT_NEWBYTES);
+			if(hNewBytes)
+			{
+				// here, we set a new window procedure for this edit control
+				SetWindowLong(hNewBytes, GWL_WNDPROC, (LONG)&Filter);
+			}
+
+			// handle of the control holding the number of bytes to patch
+			hNroBytesToPatch = GetDlgItem(hDlg, NRO_BYTES2PATCH);
+
+			// handle of the control holding the original bytes
+			hOriginalBytes = GetDlgItem(hDlg, EDT_ORIGINALBYTES);
+
+			// set the range for the spin control
+			SendDlgItemMessage(hDlg, SPIN_NRO_BYTES, UDM_SETRANGE, 0, MAKESPINRANGE(MIN_SPIN_POS, MAX_SPIN_POS));
+
+			// set the initial value for the spin control
+			SendDlgItemMessage(hDlg, SPIN_NRO_BYTES, UDM_SETPOS, 0, 1);
+			return 1;
+
+		case WM_COMMAND:
+			switch(LOWORD(wParam))
+			{
+				case IDOK:
+					// get the number of bytes to patch
+					Edit_GetText(hNroBytesToPatch, szText, sizeof(szText));
+					NroBytesToPatch = atoi(szText);
+					/* 
+						aux_NroBytesToPatch is declared as static because we lose the real value
+						after the HexToBin() call. Fucking inline ASM!.
+					*/
+					aux_NroBytesToPatch = NroBytesToPatch;
+
+					// get the address to patch
+					Edit_GetText(hAddrToPatch, szText, sizeof(szText));
+					AddrsToPatch = strtol(szText, 0, 16);
+
+					// alloc memory for new bytes
+					m_buffer = (int*)malloc(NroBytesToPatch * 3);
+					if(m_buffer == NULL)
+					{
+						MessageBox(NULL, TEXT("malloc failed!"), TEXT("Ups!"), MB_ICONERROR);
+						return 0;
+					}
+					// converts the lowercase chars to uppercase
+					retval = Edit_GetText(hNewBytes, (LPSTR)m_buffer, NroBytesToPatch * 3);
+					retval = CharUpperBuff((LPSTR)m_buffer, retval);
+
+					binBytes = (int*)malloc(retval);
+					if(binBytes == NULL)
+					{
+						MessageBox(NULL, TEXT("malloc failed!"), TEXT("Ups!"), MB_ICONERROR);
+						return 0;
+					}
+
+					if(HexToBin((char*)m_buffer, retval, NroBytesToPatch, (char*)binBytes))
+					{
+						hProc = OpenProcess(PROCESS_VM_OPERATION | PROCESS_VM_WRITE, FALSE, iGlobalPid);
+						if(hProc != NULL)
+						{
+							if(VirtualProtectEx(hProc, (LPVOID)AddrsToPatch, aux_NroBytesToPatch, PAGE_READWRITE, &OldProtect))
+							{
+								if(WriteProcessMemory(hProc, (LPVOID)AddrsToPatch, binBytes, aux_NroBytesToPatch, &BytesWritten))
+								{
+									Edit_SetText(hOriginalBytes, (LPCSTR)m_buffer);
+								}
+								else
+								{
+									MessageBox(NULL, TEXT("Error writing in process!"), TEXT("Ups!"), MB_ICONERROR);
+								}
+							}
+							else
+							{
+								MessageBox(NULL, TEXT("VirtualProtectEx error!"), TEXT("Ups!"), MB_ICONERROR);
+							}
+							CloseHandle(hProc);
+						}
+						else
+						{
+							MessageBox(hDlg, TEXT("Error opening process!"), TEXT("Ups!"), MB_ICONERROR);
+						}
+					}
+					
+					free(m_buffer);
+					free(binBytes);
+					break;
+
+				case BT_SEARCH_BYTES:
+					// read how many bytes the user wants to read
+					Edit_GetText(hNroBytesToPatch, szText, sizeof(szText));
+					NroBytesToPatch = atoi(szText);
+					
+					if(NroBytesToPatch == 0)
+						break;
+
+					// get the address from the edit box
+					Edit_GetText(hAddrToPatch, szText, sizeof(szText));
+
+					if(strlen(szText) == 0)
+					{
+						MessageBox(hDlg, TEXT("Address edit box is empty!"), TEXT("c'mon!!"), MB_ICONERROR);
+						break;
+					}
+
+					// check if the string is a valid hex string
+					if(IsValidHexString(szText))
+					{
+						// open the process we want to read memory from
+						hProc = OpenProcess(PROCESS_VM_READ, FALSE, iGlobalPid);
+						if(hProc != NULL)
+						{
+							// allocate memory to hold the data
+							m_buffer = (int*)malloc(NroBytesToPatch);
+							if(m_buffer)
+							{
+								// convert the hex string to a number
+								AddrsToPatch = strtol(szText, 0, 16);
+								// read the bytes from memory
+								if(ReadProcessMemory(hProc, (LPCVOID)AddrsToPatch, m_buffer, NroBytesToPatch, &BytesRead))
+								{
+									hexOriginalBytes = (int*)malloc((BytesRead*3)+1);
+
+									BinToHex((char*)m_buffer, BytesRead, (char*)hexOriginalBytes);
+									SetDlgItemText(hDlg, EDT_ORIGINALBYTES, (LPCSTR)hexOriginalBytes);
+
+									free(m_buffer);
+									free(hexOriginalBytes);
+									CloseHandle(hProc);
+								}
+								else
+								{
+									CloseHandle(hProc);
+									free(m_buffer);
+									MessageBox(hDlg, TEXT("Error reading memory!"), TEXT("Ups!"), MB_ICONERROR);
+								}
+							}
+							else
+							{
+								CloseHandle(hProc);
+								MessageBox(hDlg, TEXT("Error allocating memory!"), TEXT("Ups!"), MB_ICONERROR);
+							}
+						}
+						else
+						{
+							MessageBox(hDlg, TEXT("Error opening process!"), TEXT("Ups!"), MB_ICONERROR);
+						}
+					}
+					else
+					{
+						MessageBox(hDlg, TEXT("Address must be a valid hex number!"), TEXT("Ups!"), MB_ICONERROR);
+					}
+					break;
+
+				case IDCANCEL:
+					EndDialog(hDlg, 0);
+			}
+	}
+	return 0;
+}
+
+bool HexToBin(char* hexdata, unsigned long nHexData, unsigned long nroBytesToWrite, char* binoutput)
+{
+	/*
+		This function receives a pointer to a memory buffer containing an hex string
+		and converts it to its binary representation
+
+		The output is like this: 000203040506
+	*/
+	char msgText[] = TEXT("Wrong bytes dude!");
+	char msgTitle[] = TEXT("Wrong!!!");
+
+	int* bin_aux_buffer;
+	
+	bool retval = TRUE;
+
+	bin_aux_buffer = (int*)malloc(nHexData * 3);
+	if(bin_aux_buffer)
+	{
+		memset(bin_aux_buffer, 0, nHexData * 3);
+
+		__asm
+		{
+			mov ecx, dword ptr ds:[nHexData]
+			mov esi, dword ptr ds:[hexdata]
+			mov edi, dword ptr ds:[bin_aux_buffer]
+			xor eax, eax
+			cld
+	
+		convert:
+				lods byte ptr ds:[esi]
+				cmp al, ' '
+				je _continue
+				sub al, 0x30
+				js _error
+				cmp al, 0x16
+				ja _error
+				cmp al, 0x0a
+				jb _include_byte
+				sub al, 0x07
+				cmp al, 0x0a
+				jb _error
+
+		_include_byte:
+				stos byte ptr es:[edi]
+		_continue:
+				loop convert
+				sub edi, dword ptr ds:[bin_aux_buffer]
+				shr edi, 1
+				cmp edi, dword ptr ds:[nroBytesToWrite]
+				jne _error
+				mov ecx, edi
+				mov edi, dword ptr ds:[bin_aux_buffer]
+				mov esi, edi
+		aad_loop:
+				lods word ptr ds:[esi]
+				xchg ah, al
+				// AAD -> AL = AL + AH * 16
+				_emit 0xd5
+				_emit 0x10
+				stos byte ptr es:[edi]
+				loop aad_loop
+				jmp ThanksAllFolks
+		_error:
+				push MB_ICONERROR
+				lea eax, msgTitle
+				push eax
+				lea eax, msgText
+				push eax
+				push NULL
+				call dword ptr ds:[MessageBox]
+				mov retval, 0
+				jmp fin
+		ThanksAllFolks:
+				mov eax, nHexData
+				push eax
+				mov eax, bin_aux_buffer
+				push eax
+				mov eax, nHexData
+				push eax
+				mov eax, binoutput
+				push eax
+				call [memcpy_s]
+				mov eax, bin_aux_buffer
+				push eax
+				call [free]
+		fin:
+		}
+		return retval;
+	}
+	return FALSE;
+}
+
+void BinToHex(char* bindata, unsigned long nroBytes, char* hexoutput)
+{
+	/* 
+		This function receives a pointer to a memory buffer containing binary data
+		and converts it to its hex representation.
+
+		This is how Pupe2002 do it, i know, it is not the best way to do it but, hey, it works quite well.
+
+		The output is like this: 00 01 02 03 04 05 06 ...
+	*/
+
+	int* hex_aux_buffer;
+	char outputfmt[] = "%.2lX ";
+
+	hex_aux_buffer = (int*)malloc((nroBytes*3)+1);
+	if(hex_aux_buffer)
+	{
+		memset(hex_aux_buffer, 0, (nroBytes*3)+1);
+
+		__asm
+		{
+			mov ecx, dword ptr ds:[nroBytes]
+			mov esi, dword ptr ds:[bindata]
+			mov edi, dword ptr ds:[hex_aux_buffer]
+			xor eax, eax
+			dale_toda:
+				lods byte ptr ds:[esi]
+				push ecx
+				push eax
+				lea edx, outputfmt
+				push edx
+				push edi
+				call dword ptr ds:[wsprintfA]
+				add esp, 0x0c
+				add edi, 3
+				pop ecx
+			loop dale_toda
+		}
+
+		memcpy_s(hexoutput, (nroBytes * 3)+1, hex_aux_buffer, (nroBytes * 3)+1);
+		free(hex_aux_buffer);
+	}
+}
+
+void SortThreadsListView(HWND MyhList, int iSubItem)
+{
+	switch(iSubItem)
+	{
+		case THREAD_ID_COL:
+			if ((ThreadIdSortOrder == NO_SORT) || (ThreadIdSortOrder == THREAD_ID_SORT_DESCENDING))
+			{
+				ListView_SortItems(MyhList, ThreadsCompareProc, THREAD_ID_SORT_ASCENDING);
+				UpdatelParam(MyhList);
+				ThreadIdSortOrder = THREAD_ID_SORT_ASCENDING;
+			}
+			else
+			{
+				ListView_SortItems(MyhList, ThreadsCompareProc, THREAD_ID_SORT_DESCENDING);
+				UpdatelParam(MyhList);
+				ThreadIdSortOrder = THREAD_ID_SORT_DESCENDING;
+			}
+			break;
+
+		case THREAD_PRIORITY_COL:
+			if ((ThreadPrioritySortOrder == NO_SORT) || (ThreadPrioritySortOrder == THREAD_PRIORITY_SORT_DESCENDING))
+			{
+				ListView_SortItems(MyhList, ThreadsCompareProc, THREAD_PRIORITY_SORT_ASCENDING);
+				UpdatelParam(MyhList);
+				ThreadPrioritySortOrder = THREAD_PRIORITY_SORT_ASCENDING;
+			}
+			else
+			{
+				ListView_SortItems(MyhList, ThreadsCompareProc, THREAD_PRIORITY_SORT_DESCENDING);
+				UpdatelParam(MyhList);
+				ThreadPrioritySortOrder = THREAD_PRIORITY_SORT_DESCENDING;
+			}
+			break;
+
+		case THREAD_TEB_COL:
+			if ((ThreadTebSortOrder == NO_SORT) || (ThreadTebSortOrder == THREAD_TEB_SORT_DESCENDING))
+			{
+				ListView_SortItems(MyhList, ThreadsCompareProc, THREAD_TEB_SORT_ASCENDING);
+				UpdatelParam(MyhList);
+				ThreadTebSortOrder = THREAD_TEB_SORT_ASCENDING;
+			}
+			else
+			{
+				ListView_SortItems(MyhList, ThreadsCompareProc, THREAD_TEB_SORT_DESCENDING);
+				UpdatelParam(MyhList);
+				ThreadTebSortOrder = THREAD_TEB_SORT_DESCENDING;
+			}
+			break;
+
+		case THREAD_STARTADDRESS_COL:
+			if ((ThreadStartSortOrder == NO_SORT) || (ThreadStartSortOrder == THREAD_START_SORT_DESCENDING))
+			{
+				ListView_SortItems(MyhList, ThreadsCompareProc, THREAD_START_SORT_ASCENDING);
+				UpdatelParam(MyhList);
+				ThreadStartSortOrder = THREAD_START_SORT_ASCENDING;
+			}
+			else
+			{
+				ListView_SortItems(MyhList, ThreadsCompareProc, THREAD_START_SORT_DESCENDING);
+				UpdatelParam(MyhList);
+				ThreadStartSortOrder = THREAD_START_SORT_DESCENDING;
+			}
+			break;
+
+		case THREAD_STATE_COL:
+			if ((ThreadStateSortOrder == NO_SORT) || (ThreadStateSortOrder == THREAD_STATE_SORT_DESCENDING))
+			{
+				ListView_SortItems(MyhList, ThreadsCompareProc, THREAD_STATE_SORT_ASCENDING);
+				UpdatelParam(MyhList);
+				ThreadStateSortOrder = THREAD_STATE_SORT_ASCENDING;
+			}
+			else
+			{
+				ListView_SortItems(MyhList, ThreadsCompareProc, THREAD_STATE_SORT_DESCENDING);
+				UpdatelParam(MyhList);
+				ThreadStateSortOrder = THREAD_STATE_SORT_DESCENDING;
+			}
+			break;
+	}
+}
+
+BOOL CALLBACK ThreadsDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+	int SelItem;
+	char szText[MAX_PATH];
+
+	switch(uMsg)
+	{
+		case WM_INITDIALOG:
+			SetClassLongPtr(hDlg, GCLP_HICON, (long)LoadIcon(0, IDI_INFORMATION));
+
+			sprintf_s(szText, sizeof(szText), "Threads - [Process: %s - PID: %d]", szCaption, iGlobalPid);
+			SetWindowText(hDlg, szText);
+
+			hThreadMenu = CreatePopupMenu();
+			AppendMenu(hThreadMenu, MF_STRING, IDM_RESUME_THREAD, TEXT("&Resume"));
+			AppendMenu(hThreadMenu, MF_STRING, IDM_SUSPEND_THREAD, TEXT("&Suspend"));
+			AppendMenu(hThreadMenu, MF_STRING, IDM_TERMINATE_THREAD, TEXT("&Terminate"));
+			
+			InsertMenu(hThreadMenu, 2, MF_SEPARATOR, 0, "-");
+
+			AppendMenu(hThreadMenu, MF_STRING, IDM_SELECTALL, TEXT("Select &All"));
+			AppendMenu(hThreadMenu, MF_STRING, IDM_COPY2CLIPBOARD, TEXT("&Copy to Clipboard"));
+			
+			InsertMenu(hThreadMenu, 2, MF_SEPARATOR, 0, "-");
+			
+			AppendMenu(hThreadMenu, MF_STRING, IDM_REFRESH_THREAD_LIST, TEXT("R&efresh"));
+
+			hThreadsLV = PopulateThreadsLV(hDlg);
+			return 1;
+
+		case WM_NOTIFY:
+			switch(LOWORD(wParam))
+			{
+				case THREADSLV:
+					switch(((LPNMHDR)lParam)->code)
+					{
+						case LVN_COLUMNCLICK:
+							{
+								NMLISTVIEW* pListView = (NMLISTVIEW*)lParam;
+								SortThreadsListView(hThreadsLV, pListView->iSubItem);
+							}
+							break;
+						default: break;
+					}
+				default: break;
+			}
+			return 0;
+
+		case WM_CONTEXTMENU:
+			GetCursorPos(&pt2);
+			SelItem = TrackPopupMenuEx(hThreadMenu, TPM_RETURNCMD, pt2.x, pt2.y, hDlg, NULL);
+
+			switch(SelItem)
+			{
+				case IDM_SELECTALL:
+					SelectAllItems(hThreadsLV);
+					break;
+
+				case IDM_COPY2CLIPBOARD:
+					CopyDataToClipBoard(hThreadsLV, 5);
+					break;
+
+				case IDM_RESUME_THREAD:
+					DoAction(hThreadsLV, RESUME_THREAD_ACTION);
+					RefreshThreadsLV(hThreadsLV);
+					break;
+
+				case IDM_SUSPEND_THREAD:
+					DoAction(hThreadsLV, SUSPEND_THREAD_ACTION);
+					RefreshThreadsLV(hThreadsLV);
+					break;
+
+				case IDM_TERMINATE_THREAD:
+					DoAction(hThreadsLV, TERMINATE_THREAD_ACTION);
+					RefreshThreadsLV(hThreadsLV);
+					break;
+
+				case IDM_REFRESH_THREAD_LIST:					
+					RefreshThreadsLV(hThreadsLV);
+					break;
+
+				default: break;
+			}
+			break;
+
+		case WM_COMMAND:
+			switch(wParam)
+			{
+				case BT_REFRESH_THREADSLV:
+					RefreshThreadsLV(hThreadsLV);
+					break;
+
+				case BT_RESUME_THREAD:
+					DoAction(hThreadsLV, RESUME_THREAD_ACTION);
+					RefreshThreadsLV(hThreadsLV);
+					break;
+
+				case BT_TERMINATE_THREAD:
+					DoAction(hThreadsLV, TERMINATE_THREAD_ACTION);
+					RefreshThreadsLV(hThreadsLV);
+					break;
+
+				case BT_SUSPEND_THREAD:
+					DoAction(hThreadsLV, SUSPEND_THREAD_ACTION);
+					RefreshThreadsLV(hThreadsLV);
+					break;
+
+				case IDOK:
+				case IDCANCEL:
+					EndDialog(hDlg, 0);
+			}
+	}
+
+	return 0;
+}
+
+void DoAction(HWND MyhList, int Action)
+{
+	int itemPos, iCount;
+
+	iCount = ListView_GetItemCount(MyhList);
+
+	itemPos = 0;
+	while(iCount > 0)
+	{
+		if(ListView_GetItemState(MyhList, itemPos, LVIS_SELECTED) == LVIS_SELECTED)
+		{
+			switch(Action)
+			{
+				case SUSPEND_THREAD_ACTION:
+					MySuspendThread(MyhList, itemPos);
+					break;
+				
+				case TERMINATE_THREAD_ACTION:
+					MyTerminateThread(MyhList, itemPos);
+					break;
+
+				case RESUME_THREAD_ACTION:
+					MyResumeThread(MyhList, itemPos);		
+					break;
+
+				default: break;
+			}
+		}
+
+		itemPos ++;
+		iCount--;
+	}
+}
+
+void RefreshThreadsLV(HWND MyhList)
+{
+	ListView_DeleteAllItems(MyhList);
+	EnumProcessThreads(MyhList);
 }
 
 BOOL PastePEHeader(HANDLE hProc, DWORD ImageBase, char* szFile)
@@ -362,6 +1251,136 @@ BOOL PastePEHeader(HANDLE hProc, DWORD ImageBase, char* szFile)
 	return FALSE;
 }
 
+int MyDumpModuleFunction(void* addr, DWORD size, char* szModuleName, int DumpType, BOOL PasteHeaderFromDisk, BOOL bFixHeader, HWND hwndOwner)
+{
+	HANDLE hProc, hFile;
+	DWORD BytesRead, BytesWritten, offset = 0, ActualSize = 0x1000;
+	LPVOID BaseAddress, AuxBuffer;
+	OPENFILENAME ofn;
+	char szFile[MAX_PATH]; //szProcName[MAX_PATH];
+
+	BaseAddress = VirtualAlloc(NULL, size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+	AuxBuffer = VirtualAlloc(NULL, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+
+	if(BaseAddress && AuxBuffer)
+	{
+		hProc = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ | PROCESS_VM_WRITE | PROCESS_VM_OPERATION, FALSE, iGlobalPid);
+		if(hProc != NULL)
+		{
+			if(DumpType == DUMPPARTIAL)
+			{
+				if(ReadProcessMemory(hProc, (LPVOID)addr, BaseAddress, size, &BytesRead) == 0)
+				{
+					VirtualFree(BaseAddress, 0, MEM_RELEASE);
+					VirtualFree((LPVOID)AuxBuffer, 0, MEM_RELEASE);
+					CloseHandle(hProc);
+					return READPROCESSMEMORY_ERROR;
+				}
+			}
+			else
+			{
+				while(ActualSize <= size)
+				{
+					if(ReadProcessMemory(hProc, (LPVOID)((DWORD)addr+offset), AuxBuffer, 0x1000, &BytesRead) == 0)
+					{
+						VirtualFree(BaseAddress, 0, MEM_RELEASE);
+						VirtualFree((LPVOID)AuxBuffer, 0, MEM_RELEASE);
+						CloseHandle(hProc);
+						return READPROCESSMEMORY_ERROR;
+					}
+					memcpy_s((LPVOID)((DWORD)BaseAddress+offset), size, AuxBuffer, 0x1000);
+					ActualSize += 0x1000;
+					offset += 0x1000;
+				}
+			}
+
+			memset(&ofn, 0, sizeof(ofn));
+
+			ofn.lStructSize = sizeof(OPENFILENAME);
+			ofn.hwndOwner = hwndOwner;
+
+			if(DumpType == DUMPREGION || DumpType == DUMPPARTIAL)
+			{
+				ofn.lpstrFilter = TEXT("Dump File *.DMP");
+				ofn.lpstrTitle = TEXT("Save memory dump ...");
+
+				sprintf_s(szFile,  sizeof(szFile), "addr=%08X-size=%08X.dmp", (DWORD)addr, (DWORD)size);
+				ofn.lpstrFile = szFile;
+			}
+			else
+			{
+				ofn.lpstrFilter = TEXT("Executable file (*.exe)\0*.exe\0Dll file (*.dll)\0*.dll\0");
+				ofn.lpstrTitle = TEXT("Save full dump ...");
+
+				sprintf_s(szFile, sizeof(szFile), "%s", szModuleName);
+				ofn.lpstrFile = szFile;
+			}
+
+			ofn.nMaxFile = sizeof(szFile)/sizeof(*szFile);
+			ofn.lpstrFileTitle = NULL;
+			ofn.lpstrInitialDir = (LPSTR)NULL;
+			ofn.Flags = OFN_SHOWHELP | OFN_OVERWRITEPROMPT;
+				
+			if(GetSaveFileName(&ofn))
+			{
+				hFile = CreateFile(ofn.lpstrFile, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+				if(hFile != NULL)
+				{
+					if(PasteHeaderFromDisk)
+						PastePEHeader(hProc, (DWORD)BaseAddress, szModuleName);
+
+					if(bFixHeader)
+						FixHeader(hProc, (DWORD)BaseAddress, szModuleName);
+
+					if(!WriteFile(hFile, BaseAddress, size, &BytesWritten, NULL))
+					{
+						VirtualFree(BaseAddress, 0, MEM_RELEASE);
+						VirtualFree((LPVOID)AuxBuffer, 0, MEM_RELEASE);
+						CloseHandle(hProc);
+						CloseHandle(hFile);
+						return WRITEFILE_ERROR;
+					}
+					else
+					{
+						CloseHandle(hFile);
+						VirtualFree((LPVOID)AuxBuffer, 0, MEM_RELEASE);
+						VirtualFree(BaseAddress, 0, MEM_RELEASE);
+						CloseHandle(hProc);
+
+						return RTN_OK;
+					}
+				}
+				else
+				{
+					VirtualFree((LPVOID)BaseAddress, 0, MEM_RELEASE);
+					VirtualFree((LPVOID)AuxBuffer, 0, MEM_RELEASE);
+					CloseHandle(hProc);
+					return CREATEFILE_ERROR;
+				}
+			}
+			else
+			{
+				VirtualFree((LPVOID)BaseAddress, 0, MEM_RELEASE);
+				VirtualFree((LPVOID)AuxBuffer, 0, MEM_RELEASE);
+				CloseHandle(hProc);
+				return SAVEDIALOGNOCHOICE;
+			}
+		}
+		else
+		{	
+			VirtualFree((LPVOID)BaseAddress, 0, MEM_RELEASE);
+			VirtualFree((LPVOID)AuxBuffer, 0, MEM_RELEASE);
+			return OPENPROCESS_ERROR;
+		}
+	}
+	else
+	{
+		return VIRTULALLOC_ERROR;
+	}
+
+	return RTN_OK;
+}
+
 int DumpMemoryRegion(void* addr, DWORD size, int DumpType, BOOL PasteHeaderFromDisk, BOOL bFixHeader, HWND hwndOwner)
 {
 	HANDLE hProc, hFile;
@@ -383,6 +1402,8 @@ int DumpMemoryRegion(void* addr, DWORD size, int DumpType, BOOL PasteHeaderFromD
 				ofn.lStructSize = sizeof(OPENFILENAME);
 				ofn.hwndOwner = hwndOwner;
 
+				GetModuleFileNameEx(hProc, NULL, szProcName, sizeof(szProcName)/sizeof(char));
+
 				if(DumpType == DUMPREGION || DumpType == DUMPPARTIAL)
 				{
 					ofn.lpstrFilter = TEXT("Dump File *.DMP");
@@ -393,8 +1414,6 @@ int DumpMemoryRegion(void* addr, DWORD size, int DumpType, BOOL PasteHeaderFromD
 				}
 				else
 				{
-					GetModuleFileNameEx(hProc, NULL, szProcName, sizeof(szProcName)/sizeof(char));
-
 					ofn.lpstrFilter = TEXT("Executable File *.EXE");
 					ofn.lpstrTitle = TEXT("Save full dump ...");
 
@@ -406,8 +1425,6 @@ int DumpMemoryRegion(void* addr, DWORD size, int DumpType, BOOL PasteHeaderFromD
 				ofn.lpstrFileTitle = NULL;
 				ofn.lpstrInitialDir = (LPSTR)NULL;
 				ofn.Flags = OFN_SHOWHELP | OFN_OVERWRITEPROMPT;
-				
-				GetModuleFileNameEx(hProc, NULL, szProcName, sizeof(szProcName)/sizeof(char));
 				
 				if(GetSaveFileName(&ofn))
 				{
@@ -607,6 +1624,243 @@ void UpdatelParam(HWND MyhList)
 	}
 }
 
+int CALLBACK ModulesCompareProc(LPARAM lParam1, LPARAM lParam2, LPARAM lParamSort)
+{
+	int retval;
+	long num1, num2;
+	char szText[MAX_PATH], szText2[MAX_PATH];
+
+	switch(lParamSort)
+	{
+		case MODULE_NAME_COL_SORT_ASCENDING:
+			ListView_GetItemText(hModulesLV, lParam1, MODULE_NAME_COL, szText, sizeof(szText));
+			ListView_GetItemText(hModulesLV, lParam2, MODULE_NAME_COL, szText2, sizeof(szText2));
+
+			retval = lstrcmpi(szText, szText2);
+			break;
+
+		case MODULE_NAME_COL_SORT_DESCENDING:
+			ListView_GetItemText(hModulesLV, lParam1, MODULE_NAME_COL, szText, sizeof(szText));
+			ListView_GetItemText(hModulesLV, lParam2, MODULE_NAME_COL, szText2, sizeof(szText2));
+
+			retval = lstrcmpi(szText2, szText);
+			break;
+
+		case MODULE_IMAGEBASE_COL_SORT_ASCENDING:
+			ListView_GetItemText(hModulesLV, lParam1, MODULE_IMAGEBASE_COL, szText, sizeof(szText));
+			ListView_GetItemText(hModulesLV, lParam2, MODULE_IMAGEBASE_COL, szText2, sizeof(szText2));
+
+			num1 = strtol(szText, NULL, 16);
+			num2 = strtol(szText2, NULL, 16);
+
+			retval = num1 - num2;
+			break;
+
+		case MODULE_IMAGEBASE_COL_SORT_DESCENDING:
+			ListView_GetItemText(hModulesLV, lParam1, MODULE_IMAGEBASE_COL, szText, sizeof(szText));
+			ListView_GetItemText(hModulesLV, lParam2, MODULE_IMAGEBASE_COL, szText2, sizeof(szText2));
+
+			num1 = strtol(szText, NULL, 16);
+			num2 = strtol(szText2, NULL, 16);
+
+			retval = num2 - num1;
+			break;
+
+		case MODULE_IMAGESIZE_COL_SORT_ASCENDING:
+			ListView_GetItemText(hModulesLV, lParam1, MODULE_IMAGESIZE_COL, szText, sizeof(szText));
+			ListView_GetItemText(hModulesLV, lParam2, MODULE_IMAGESIZE_COL, szText2, sizeof(szText2));
+
+			num1 = strtol(szText, NULL, 16);
+			num2 = strtol(szText2, NULL, 16);
+
+			retval = num1 - num2;
+			break;
+
+		case MODULE_IMAGESIZE_COL_SORT_DESCENDING:
+			ListView_GetItemText(hModulesLV, lParam1, MODULE_IMAGESIZE_COL, szText, sizeof(szText));
+			ListView_GetItemText(hModulesLV, lParam2, MODULE_IMAGESIZE_COL, szText2, sizeof(szText2));
+
+			num1 = strtol(szText, NULL, 16);
+			num2 = strtol(szText2, NULL, 16);
+
+			retval = num2 - num1;
+			break;
+
+	}
+
+	return retval;
+
+
+}
+int CALLBACK ThreadsCompareProc(LPARAM lParam1, LPARAM lParam2, LPARAM lParamSort)
+{
+	int retval, num1, num2;
+	char szText[MAX_PATH], szText2[MAX_PATH];
+
+	switch(lParamSort)
+	{
+		case THREAD_ID_SORT_ASCENDING:
+			ListView_GetItemText(hThreadsLV, lParam1, THREAD_ID_COL, szText, sizeof(szText));
+			ListView_GetItemText(hThreadsLV, lParam2, THREAD_ID_COL, szText2, sizeof(szText2));
+
+			num1 = strtol(szText, NULL, 16);
+			num2 = strtol(szText2, NULL, 16);
+
+			retval = num1 - num2;
+			break;
+
+		case THREAD_ID_SORT_DESCENDING:
+			ListView_GetItemText(hThreadsLV, lParam1, THREAD_ID_COL, szText, sizeof(szText));
+			ListView_GetItemText(hThreadsLV, lParam2, THREAD_ID_COL, szText2, sizeof(szText2));
+
+			num1 = strtol(szText, NULL, 16);
+			num2 = strtol(szText2, NULL, 16);
+
+			retval = num2 - num1;
+
+			break;
+
+		case THREAD_PRIORITY_SORT_ASCENDING:
+			ListView_GetItemText(hThreadsLV, lParam1, THREAD_PRIORITY_COL, szText, sizeof(szText));
+			ListView_GetItemText(hThreadsLV, lParam2, THREAD_PRIORITY_COL, szText2, sizeof(szText2));
+
+			num1 = strtol(szText, NULL, 16);
+			num2 = strtol(szText2, NULL, 16);
+
+			retval = num1 - num2;
+			break;
+
+		case THREAD_PRIORITY_SORT_DESCENDING:
+			ListView_GetItemText(hThreadsLV, lParam1, THREAD_PRIORITY_COL, szText, sizeof(szText));
+			ListView_GetItemText(hThreadsLV, lParam2, THREAD_PRIORITY_COL, szText2, sizeof(szText2));
+
+			num1 = strtol(szText, NULL, 16);
+			num2 = strtol(szText2, NULL, 16);
+
+			retval = num2 - num1;
+			break;
+
+		case THREAD_TEB_SORT_ASCENDING:
+			ListView_GetItemText(hThreadsLV, lParam1, THREAD_TEB_COL, szText, sizeof(szText));
+			ListView_GetItemText(hThreadsLV, lParam2, THREAD_TEB_COL, szText2, sizeof(szText2));
+
+			num1 = strtol(szText, NULL, 16);
+			num2 = strtol(szText2, NULL, 16);
+
+			retval = num1 - num2;
+			break;
+
+		case THREAD_TEB_SORT_DESCENDING:
+			ListView_GetItemText(hThreadsLV, lParam1, THREAD_TEB_COL, szText, sizeof(szText));
+			ListView_GetItemText(hThreadsLV, lParam2, THREAD_TEB_COL, szText2, sizeof(szText2));
+
+			num1 = strtol(szText, NULL, 16);
+			num2 = strtol(szText2, NULL, 16);
+
+			retval = num2 - num1;
+			break;
+
+		case THREAD_START_SORT_ASCENDING:
+			ListView_GetItemText(hThreadsLV, lParam1, THREAD_STARTADDRESS_COL, szText, sizeof(szText));
+			ListView_GetItemText(hThreadsLV, lParam2, THREAD_STARTADDRESS_COL, szText2, sizeof(szText2));
+
+			num1 = strtol(szText, NULL, 16);
+			num2 = strtol(szText2, NULL, 16);
+
+			retval = num1 - num2;
+			break;
+
+		case THREAD_START_SORT_DESCENDING:
+			ListView_GetItemText(hThreadsLV, lParam1, THREAD_STARTADDRESS_COL, szText, sizeof(szText));
+			ListView_GetItemText(hThreadsLV, lParam2, THREAD_STARTADDRESS_COL, szText2, sizeof(szText2));
+
+			num1 = strtol(szText, NULL, 16);
+			num2 = strtol(szText2, NULL, 16);
+
+			retval = num2 - num1;
+			break;
+
+		case THREAD_STATE_SORT_ASCENDING:
+			ListView_GetItemText(hThreadsLV, lParam1, THREAD_STATE_COL, szText, sizeof(szText));
+			ListView_GetItemText(hThreadsLV, lParam2, THREAD_STATE_COL, szText2, sizeof(szText2));
+
+			retval = lstrcmpi(szText, szText2);
+			break;
+
+		case THREAD_STATE_SORT_DESCENDING:
+			ListView_GetItemText(hThreadsLV, lParam1, THREAD_STATE_COL, szText, sizeof(szText));
+			ListView_GetItemText(hThreadsLV, lParam2, THREAD_STATE_COL, szText2, sizeof(szText2));
+
+			retval = lstrcmpi(szText2, szText);
+			break;
+
+		default: break;
+	}
+
+	return retval;
+}
+
+int CALLBACK HandlesCompareProc(LPARAM lParam1, LPARAM lParam2, LPARAM lParamSort)
+{
+	int retval, nro1, nro2;
+	char szText[MAX_PATH], szText2[MAX_PATH];
+
+	switch(lParamSort)
+	{
+		case HANDLE_TYPE_COL_SORT_ASCENDING:
+			ListView_GetItemText(hHandlesLV, lParam1, HANDLE_TYPE_COL, szText, sizeof(szText));
+			ListView_GetItemText(hHandlesLV, lParam2, HANDLE_TYPE_COL, szText2, sizeof(szText2));
+
+			retval = lstrcmpi(szText, szText2);
+			break;
+
+		case HANDLE_COL_SORT_ASCENDING:
+			ListView_GetItemText(hHandlesLV, lParam1, HANDLE_TYPE_COL, szText, sizeof(szText));
+			ListView_GetItemText(hHandlesLV, lParam2, HANDLE_TYPE_COL, szText2, sizeof(szText2));
+
+			nro1 = strtol(szText, 0, 16);
+			nro2 = strtol(szText2, 0, 16);
+
+			retval = nro1 - nro2;
+			break;
+
+		case HANDLE_COL_SORT_DESCENDING:
+			ListView_GetItemText(hHandlesLV, lParam1, HANDLE_TYPE_COL, szText, sizeof(szText));
+			ListView_GetItemText(hHandlesLV, lParam2, HANDLE_TYPE_COL, szText2, sizeof(szText2));
+
+			nro1 = strtol(szText, 0, 16);
+			nro2 = strtol(szText2, 0, 16);
+
+			retval = nro2 - nro1;
+			break;
+
+		case HANDLE_NAME_COL_SORT_ASCENDING:
+			ListView_GetItemText(hHandlesLV, lParam1, HANDLE_NAME_COL, szText, sizeof(szText));
+			ListView_GetItemText(hHandlesLV, lParam2, HANDLE_NAME_COL, szText2, sizeof(szText2));
+
+			retval = lstrcmpi(szText, szText2);
+			break;
+
+		case HANDLE_TYPE_COL_SORT_DESCENDING:
+			ListView_GetItemText(hHandlesLV, lParam1, HANDLE_TYPE_COL, szText, sizeof(szText));
+			ListView_GetItemText(hHandlesLV, lParam2, HANDLE_TYPE_COL, szText2, sizeof(szText2));
+
+			retval = lstrcmpi(szText2, szText);
+			break;
+
+		case HANDLE_NAME_COL_SORT_DESCENDING:
+			ListView_GetItemText(hHandlesLV, lParam1, HANDLE_NAME_COL, szText, sizeof(szText));
+			ListView_GetItemText(hHandlesLV, lParam2, HANDLE_NAME_COL, szText2, sizeof(szText2));
+
+			retval = lstrcmpi(szText2, szText);
+			break;
+
+		default: break;
+	}
+
+	return retval;
+}
+
 int CALLBACK ListViewProcessesCompareProc(LPARAM lParam1, LPARAM lParam2, LPARAM lParamSort)
 {
 	char szText[MAX_PATH], szText2[MAX_PATH];
@@ -718,39 +1972,40 @@ void SelectAllItems(HWND MyhList)
 		ListView_SetItemState(MyhList, index, LVIS_FOCUSED | LVIS_SELECTED, 0x000F);
 }
 
-void SetHotKey(WORD Key, WORD KeyId, BYTE fVirt)
-{
-	if(hAccel != NULL)
-		DestroyAcceleratorTable(hAccel);
-
-	MyAccel.fVirt = fVirt; //FCONTROL | FVIRTKEY | FNOINVERT;
-	MyAccel.key = LOBYTE(Key);
-	MyAccel.cmd = KeyId;
-
-	hAccel = CreateAcceleratorTable(&MyAccel, 1);
-	if(hAccel == NULL)
-		MessageBox(NULL, TEXT("Couldn't create accelerator table!"), TEXT("Ups!"), MB_ICONERROR);
-}
+//void SetHotKey(WORD Key, WORD KeyId, BYTE fVirt)
+//{
+//	if(hAccel != NULL)
+//		DestroyAcceleratorTable(hAccel);
+//
+//	MyAccel.fVirt = fVirt; //FCONTROL | FVIRTKEY | FNOINVERT;
+//	MyAccel.key = LOBYTE(Key);
+//	MyAccel.cmd = KeyId;
+//
+//	hAccel = CreateAcceleratorTable(&MyAccel, 1);
+//	if(hAccel == NULL)
+//		MessageBox(NULL, TEXT("Couldn't create accelerator table!"), TEXT("Ups!"), MB_ICONERROR);
+//}
 
 void MySetClipboardData(void* pMem, SIZE_T size)
 {
 	HGLOBAL hGlobal;
-	LPVOID Address;
+	HANDLE Address;
 
 	hGlobal = GlobalAlloc(GHND, size);
 	Address = GlobalLock(hGlobal);
 
 	memcpy_s(Address, size, pMem, size);
+	//GlobalUnlock(hGlobal);
 
 	if(OpenClipboard(NULL))
 	{
 		EmptyClipboard();
-		SetClipboardData(CF_TEXT, Address);
+		SetClipboardData(CF_TEXT, hGlobal);
+		GlobalUnlock(hGlobal);
 		CloseClipboard();
 	}
 
-	GlobalUnlock(hGlobal);
-	GlobalFree(hGlobal);
+	//GlobalFree(hGlobal);
 }
 
 void CopyDataToClipBoard(HWND MyhList, int MaxCols)
@@ -826,9 +2081,214 @@ void CopyDataToClipBoard(HWND MyhList, int MaxCols)
 
 void ShowAboutInfo(HWND hDlg)
 {
-	MessageBox(hDlg, TEXT("Virtual Section Dumper v1.0\n\nCoded by:\n\t +NCR/CRC! [ReVeRsEr]\n\ncrackinglandia(at)gmail(dot)com\n@crackinglandia\n\nGeneral Pico, La Pampa\nArgentina"), 
-		TEXT("Virtual Section Dumper v1.0"),
+	MessageBox(hDlg, TEXT("Virtual Section Dumper v2.0\n\nCoded by:\n\t +NCR/CRC! [ReVeRsEr]\n\ncrackinglandia(at)gmail(dot)com\n@crackinglandia\n\nGeneral Pico, La Pampa\nArgentina"), 
+		TEXT("Virtual Section Dumper v2.0"),
 		MB_ICONINFORMATION);
+}
+
+HWND PopulateHandlesLV(HWND hDlg)
+{
+	HWND hMyList;
+
+	hMyList = GetDlgItem(hDlg, HANDLESLV);
+
+	if(hMyList)
+	{
+		/*
+			ComCtl32.dll version 6 has problems with LVS_EX_GRIDLINES when its scrolled vertically.
+			An option to avoid this issue is to disable the LVS_EX_GRIDLINES style.
+			Another option is to disable the Windows XP Style.
+
+			* http://stackoverflow.com/questions/1416793/listview-gridlines-issue
+			* http://www.ureader.com/msg/1484143.aspx
+		*/
+		ListView_SetExtendedListViewStyle(hMyList, LVS_EX_GRIDLINES | LVS_EX_FULLROWSELECT | LVS_SORTASCENDING);
+		
+		CreateColumnsHandlesLV(hMyList);
+		EnumProcessHandles(hMyList);
+	}
+
+	return hMyList;
+}
+
+/*
+ this code was taken from http://forum.sysinternals.com/uploads/26792/handles.zip
+ more information: http://forum.sysinternals.com/howto-enumerate-handles_topic18892.html
+*/
+int EnumProcessHandles(HWND MyhList)
+{
+	NTSTATUS status;
+	PSYSTEM_HANDLE_INFORMATION handleInfo;
+	ULONG handleInfoSize = 0x10000;
+	HANDLE processHandle;
+	ULONG i, iCount = 0;
+	LVITEM lvItem;
+	char szText[MAX_PATH];
+
+    if (!(processHandle = OpenProcess(PROCESS_DUP_HANDLE, FALSE, iGlobalPid)))
+    {
+        return RTN_ERROR;
+    }
+
+    handleInfo = (PSYSTEM_HANDLE_INFORMATION)malloc(handleInfoSize);
+
+    /* NtQuerySystemInformation won't give us the correct buffer size, 
+       so we guess by doubling the buffer size. */
+    while ((status = NtQuerySystemInformation(
+        SystemHandleInformation,
+        handleInfo,
+        handleInfoSize,
+        NULL
+        )) == STATUS_INFO_LENGTH_MISMATCH)
+        handleInfo = (PSYSTEM_HANDLE_INFORMATION)realloc(handleInfo, handleInfoSize *= 2);
+
+    /* NtQuerySystemInformation stopped giving us STATUS_INFO_LENGTH_MISMATCH. */
+    if (!NT_SUCCESS(status))
+        return RTN_ERROR;
+
+    for (i = 0; i < handleInfo->HandleCount; i++)
+    {
+        SYSTEM_HANDLE handle = handleInfo->Handles[i];
+        HANDLE dupHandle = NULL;
+        POBJECT_TYPE_INFORMATION objectTypeInfo;
+        PVOID objectNameInfo;
+        UNICODE_STRING objectName;
+        ULONG returnLength;
+
+        /* Check if this handle belongs to the PID the user specified. */
+        if (handle.ProcessId != (ULONG)iGlobalPid)
+            continue;
+
+        /* Duplicate the handle so we can query it. */
+        if (!NT_SUCCESS(NtDuplicateObject(
+            processHandle,
+            (HANDLE)handle.Handle,
+            GetCurrentProcess(),
+            &dupHandle,
+            0,
+            0,
+            0
+            )))
+        {
+            continue;
+        }
+
+        /* Query the object type. */
+        objectTypeInfo = (POBJECT_TYPE_INFORMATION)malloc(0x1000);
+        if (!NT_SUCCESS(NtQueryObject(
+            dupHandle,
+            ObjectTypeInformation,
+            objectTypeInfo,
+            0x1000,
+            NULL
+            )))
+        {
+            CloseHandle(dupHandle);
+            continue;
+        }
+
+        /* Query the object name (unless it has an access of 
+           0x0012019f, on which NtQueryObject could hang. */
+        if (handle.GrantedAccess == 0x0012019f)
+        {
+            free(objectTypeInfo);
+            CloseHandle(dupHandle);
+            continue;
+        }
+
+        objectNameInfo = malloc(0x1000);
+        if (!NT_SUCCESS(NtQueryObject(
+            dupHandle,
+            ObjectNameInformation,
+            objectNameInfo,
+            0x1000,
+            &returnLength
+            )))
+        {
+            /* Reallocate the buffer and try again. */
+            objectNameInfo = realloc(objectNameInfo, returnLength);
+            if (!NT_SUCCESS(NtQueryObject(
+                dupHandle,
+                ObjectNameInformation,
+                objectNameInfo,
+                returnLength,
+                NULL
+                )))
+            {
+                free(objectTypeInfo);
+                free(objectNameInfo);
+                CloseHandle(dupHandle);
+                continue;
+            }
+        }
+
+        /* Cast our buffer into an UNICODE_STRING. */
+        objectName = *(PUNICODE_STRING)objectNameInfo;
+
+        /* Print the information! */
+        if (objectName.Length)
+        {
+			memset(&lvItem, 0, sizeof(lvItem));
+
+			lvItem.mask = LVIF_TEXT | LVIF_PARAM;
+			lvItem.cchTextMax = MAX_PATH;
+			lvItem.iItem = lvItem.lParam = iCount;
+			lvItem.iSubItem = 0;
+
+			if(ListView_InsertItem(MyhList, &lvItem) != -1)
+			{
+				sprintf_s(szText, sizeof(szText), "%.*S", objectTypeInfo->Name.Length / 2, objectTypeInfo->Name.Buffer);
+				ListView_SetItemText(MyhList, iCount, HANDLE_TYPE_COL, szText);
+				
+				sprintf_s(szText, sizeof(szText), "%.*S", objectName.Length / 2, objectName.Buffer);
+				ListView_SetItemText(MyhList, iCount, HANDLE_NAME_COL, szText);
+
+				sprintf_s(szText, sizeof(szText), "%08X", handle.Handle);
+				ListView_SetItemText(MyhList, iCount, HANDLE_COL, szText);
+				iCount++;
+			}
+			else
+			{
+				MessageBox(NULL, TEXT("Couldn't insert item!"), TEXT("Ups!"), MB_ICONERROR);
+			}
+        }
+		else
+		{
+			// we also display those object we couldn't resolve the name
+			memset(&lvItem, 0, sizeof(lvItem));
+
+			lvItem.mask = LVIF_TEXT | LVIF_PARAM;
+			lvItem.cchTextMax = MAX_PATH;
+			lvItem.iItem = lvItem.lParam = iCount;
+			lvItem.iSubItem = 0;
+
+			if(ListView_InsertItem(MyhList, &lvItem) != -1)
+			{
+				sprintf_s(szText, sizeof(szText), "%.*S", objectTypeInfo->Name.Length / 2, objectTypeInfo->Name.Buffer);
+				ListView_SetItemText(MyhList, iCount, HANDLE_TYPE_COL, szText);
+				
+				ListView_SetItemText(MyhList, iCount, HANDLE_NAME_COL, "(unnamed)");
+				
+				sprintf_s(szText, sizeof(szText), "%08X", handle.Handle);
+				ListView_SetItemText(MyhList, iCount, HANDLE_COL, szText);
+
+				iCount++;
+			}
+			else
+			{
+				MessageBox(NULL, TEXT("Couldn't insert item!"), TEXT("Ups!"), MB_ICONERROR);
+			}
+		}
+
+        free(objectTypeInfo);
+        free(objectNameInfo);
+        CloseHandle(dupHandle);
+    }
+
+    free(handleInfo);
+    CloseHandle(processHandle);
+
+	return RTN_OK;
 }
 
 HWND PopulateRegionLV(HWND hDlg)
@@ -864,6 +2324,33 @@ void lowercase(char string[])
       string[i] = tolower(string[i]);
       i++;
    }
+}
+
+void CreateColumnsHandlesLV(HWND MyhList)
+{
+	int index;
+	LVCOLUMN lvCol = {0};
+	char* lvColTitles[] = {"Type", "Name", "Handle"};
+	char szFmtText[MAX_PATH];
+
+	for(index = 0; index < 3; index++)
+	{
+		lvCol.mask = LVCF_TEXT | LVCF_SUBITEM | LVCF_WIDTH | LVCF_IDEALWIDTH;
+		lvCol.pszText = lvColTitles[index];
+		
+		if(index)
+			lvCol.cx = lvCol.cxIdeal = 400;
+		else
+			lvCol.cx = lvCol.cxIdeal = 100;
+
+		lvCol.cchTextMax = strlen(lvColTitles[index]);
+
+		if(ListView_InsertColumn(MyhList, index, &lvCol) == -1)
+		{
+			sprintf_s(szFmtText, sizeof(szFmtText), "Couldn't insert column %d", index);
+			MessageBox(MyGetWindowOwner(MyhList), szFmtText, TEXT("Ups!"), MB_ICONERROR);
+		}
+	}
 }
 
 void CreateColumnsRegionLV(HWND MyhList)
@@ -1122,6 +2609,8 @@ BOOL CALLBACK AppDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 										
 										iGlobalPid = iPid;
 
+										ListView_GetItemText(hList, item, PATH_COLUMN, szCaption, sizeof(szCaption));
+
 										DialogBoxParam(hGlobalInstance, (LPCTSTR)SECTIONSDLG, hDlg, DumpRegionProc, 0);
 									}
 									else
@@ -1131,7 +2620,7 @@ BOOL CALLBACK AppDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 									}
 								}
 								else
-									MessageBox(hDlg, TEXT("Couldn't not receive process handle!"), TEXT("VSD v1.0"), MB_ICONERROR);
+									MessageBox(hDlg, TEXT("Couldn't not receive process handle!"), TEXT("VSD v2.0"), MB_ICONERROR);
 							}
 							break;
 						
@@ -1162,17 +2651,37 @@ BOOL CALLBACK AppDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 			InitCommonCtrlsEx();
 
 			// create popup menu for the listview
-			hMenu = CreatePopupMenu();
-			AppendMenu(hMenu, MF_STRING, IDM_SELECTALL, TEXT("Select All"));
-			AppendMenu(hMenu, MF_STRING, IDM_COPY2CLIPBOARD, TEXT("Copy to Clipboard"));
-			InsertMenu(hMenu, 2, MF_SEPARATOR, 0, "-");
-			AppendMenu(hMenu, MF_STRING, IDM_DUMP_FULL, TEXT("Dump Full ..."));
-			AppendMenu(hMenu, MF_STRING, IDM_DUMP_PARTIAL, TEXT("Dump Partial ..."));
-			AppendMenu(hMenu, MF_STRING, IDM_DUMP_REGION, TEXT("Dump Regions ..."));
-			InsertMenu(hMenu, 2, MF_SEPARATOR, 0, "-");
-			AppendMenu(hMenu, MF_STRING, IDM_DELPROCESS, TEXT("Kill Process"));
-			InsertMenu(hMenu, 2, MF_SEPARATOR, 0, "-");
-			AppendMenu(hMenu, MF_STRING, IDM_REFRESH, TEXT("Refresh"));
+			hMainMenu = CreatePopupMenu();
+			AppendMenu(hMainMenu, MF_STRING, IDM_SELECTALL, TEXT("Select &All"));
+			AppendMenu(hMainMenu, MF_STRING, IDM_COPY2CLIPBOARD, TEXT("&Copy to Clipboard"));
+			
+			InsertMenu(hMainMenu, 2, MF_SEPARATOR, 0, "-");
+
+			hDumpSubMenu = CreatePopupMenu();
+			InsertMenu(hMainMenu, 2, MF_POPUP, (UINT)hDumpSubMenu, TEXT("&Dump"));
+			AppendMenu(hDumpSubMenu, MF_STRING, IDM_DUMP_FULL, TEXT("&Full"));
+			AppendMenu(hDumpSubMenu, MF_STRING, IDM_DUMP_PARTIAL, TEXT("&Partial"));
+			AppendMenu(hDumpSubMenu, MF_STRING, IDM_DUMP_REGION, TEXT("&Regions"));
+			InsertMenu(hMainMenu, 2, MF_SEPARATOR, 0, "-");
+
+			// create a sub-menu
+			hViewSubMenu = CreatePopupMenu();
+			InsertMenu(hMainMenu, 2, MF_POPUP, (UINT)hViewSubMenu, TEXT("&View"));
+			AppendMenu(hViewSubMenu, MF_STRING, IDM_LIST_MODULES, TEXT("&Modules"));
+			AppendMenu(hViewSubMenu, MF_STRING, IDM_LIST_HANDLES, TEXT("&Handles"));
+			AppendMenu(hViewSubMenu, MF_STRING, IDM_LIST_THREADS, TEXT("&Threads"));
+
+			InsertMenu(hMainMenu, 2, MF_SEPARATOR, 0, "-");
+
+			AppendMenu(hMainMenu, MF_STRING, IDM_PATCH_PROCESS, TEXT("&Patch ..."));
+
+			InsertMenu(hMainMenu, 2, MF_SEPARATOR, 0, "-");
+
+			AppendMenu(hMainMenu, MF_STRING, IDM_DELPROCESS, TEXT("&Kill Process"));
+			
+			InsertMenu(hMainMenu, 2, MF_SEPARATOR, 0, "-");
+			
+			AppendMenu(hMainMenu, MF_STRING, IDM_REFRESH, TEXT("&Refresh"));
 
 			if(AdjustPrivileges() == RTN_OK)
 			{
@@ -1230,7 +2739,7 @@ BOOL CALLBACK AppDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
 		case WM_CONTEXTMENU:
 			GetCursorPos(&pt);
-			SelItem = TrackPopupMenuEx(hMenu, TPM_RETURNCMD, pt.x, pt.y, hDlg, NULL);
+			SelItem = TrackPopupMenuEx(hMainMenu, TPM_RETURNCMD, pt.x, pt.y, hDlg, NULL);
 
 			switch(SelItem)
 			{
@@ -1248,18 +2757,18 @@ BOOL CALLBACK AppDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 								{
 									// terminate the process
 									TerminateProcess(hProc, 0);
-									// close the handle of the process
-									CloseHandle(hProc);
+
 									// update the processes listview
 									Sleep(500);
-									ListView_DeleteAllItems(hList);
-									ListProcesses(hDlg, hList);
+									RefreshLV(hDlg, hList);
+									//ListView_DeleteAllItems(hList);
+									//ListProcesses(hDlg, hList);
 								}
 								else
 								{
-									CloseHandle(hProc);
 									MessageBox(hDlg, TEXT("The selected item is not a 32 bits process"), TEXT("Ups!"), MB_ICONERROR);
 								}
+								CloseHandle(hProc);
 							}
 							else
 								MessageBox(hDlg, TEXT("Couldn't terminate process!"), TEXT("Terminate Process"), MB_ICONERROR);
@@ -1268,8 +2777,108 @@ BOOL CALLBACK AppDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 					break;
 
 				case IDM_REFRESH:
-					ListView_DeleteAllItems(hList);
-					ListProcesses(hDlg, hList);
+					//ListView_DeleteAllItems(hList);
+					//ListProcesses(hDlg, hList);
+					RefreshLV(hDlg, hList);
+					break;
+
+				case IDM_LIST_MODULES:
+					item = ListView_GetNextItem(hList, -1, LVNI_SELECTED);
+					if(item != -1)
+					{
+						iPid = ListView_GetPidFromItem(hList, item);
+						hProc = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, iPid);
+						if(hProc != NULL)
+						{
+							if((RunningOnWow64 && IsWow64(hProc)) || !RunningOnWow64)
+							{
+								iGlobalPid = iPid;
+								
+								bGlobalPastePEHeader = IsDlgButtonChecked(hDlg, PASTEPEHEADER);
+								bGlobalFixHeader = IsDlgButtonChecked(hDlg, FIXPEHEADER);
+
+								//ListView_GetItemText(hList, item, IB_COLUMN, szAddr, sizeof(szAddr));
+								//ListView_GetItemText(hList, item, IZ_COLUMN, szSize, sizeof(szSize));
+
+								//RegionAddr = strtol(szAddr, 0, 16);
+								//RegionSize = strtol(szSize, 0, 16);
+
+								ListView_GetItemText(hList, item, PATH_COLUMN, szCaption, sizeof(szCaption));
+
+								DialogBoxParam(hGlobalInstance, (LPCTSTR)MODULESDLG, hDlg, EnumModulesDlgProc, 0);
+								//RefreshLV(hDlg, hList);
+							}
+							else
+							{
+								MessageBox(hDlg, TEXT("The selected item is not a 32 bits process"), TEXT("Ups!"), MB_ICONERROR);
+							}
+							CloseHandle(hProc);
+						}
+						else
+						{
+							MessageBox(hDlg, TEXT("Couldn't receive process handle!"), TEXT("VSD v2.0"), MB_ICONERROR);
+						}
+					}
+					break;
+
+				case IDM_LIST_THREADS:
+					item = ListView_GetNextItem(hList, -1, LVNI_SELECTED); 
+
+					if(item != -1)
+					{
+						iPid = ListView_GetPidFromItem(hList, item);
+
+						hProc = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, iPid);
+						if(hProc != NULL)
+						{
+							if((RunningOnWow64 && IsWow64(hProc)) || !RunningOnWow64)
+							{			
+								iGlobalPid = iPid;
+
+								ListView_GetItemText(hList, item, PATH_COLUMN, szCaption, sizeof(szCaption));
+
+								DialogBoxParam(hGlobalInstance, (LPCTSTR)THREADSDLG, hDlg, ThreadsDlgProc, 0);
+							}
+							else
+							{
+								MessageBox(hDlg, TEXT("The selected item is not a 32 bits process"), TEXT("Ups!"), MB_ICONERROR);
+							}
+							
+							CloseHandle(hProc);
+						}
+						else
+							MessageBox(hDlg, TEXT("Couldn't not receive process handle!"), TEXT("VSD v2.0"), MB_ICONERROR);
+					}
+					break;
+
+				case IDM_LIST_HANDLES:
+					item = ListView_GetNextItem(hList, -1, LVNI_SELECTED);
+					if(item != -1)
+					{
+						iPid = ListView_GetPidFromItem(hList, item);
+						hProc = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, iPid);
+						if(hProc != NULL)
+						{
+							if((RunningOnWow64 && IsWow64(hProc)) || !RunningOnWow64)
+							{
+								iGlobalPid = iPid;
+
+								ListView_GetItemText(hList, item, PATH_COLUMN, szCaption, sizeof(szCaption));
+
+								DialogBoxParam(hGlobalInstance, (LPCTSTR)HANDLESDLG, hDlg, EnumHandlesDlgProc, 0);
+							}
+							else
+							{
+								MessageBox(hDlg, TEXT("The selected item is not a 32 bits process"), TEXT("Ups!"), MB_ICONERROR);
+							}
+							
+							CloseHandle(hProc);
+						}
+						else
+						{
+							MessageBox(hDlg, TEXT("Couldn't receive process handle!"), TEXT("VSD v2.0"), MB_ICONERROR);
+						}
+					}
 					break;
 
 				case IDM_DUMP_PARTIAL:
@@ -1282,21 +2891,27 @@ BOOL CALLBACK AppDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 						{
 							if((RunningOnWow64 && IsWow64(hProc)) || !RunningOnWow64)
 							{
-								CloseHandle(hProc);
+								ListView_GetItemText(hList, item, IB_COLUMN, szAddr, sizeof(szAddr));
+								ListView_GetItemText(hList, item, IZ_COLUMN, szSize, sizeof(szSize));
+
+								RegionAddr = strtol(szAddr, 0, 16);
+								RegionSize = strtol(szSize, 0, 16);
 
 								iGlobalPid = iPid;
+								
+								ListView_GetItemText(hList, item, PATH_COLUMN, szCaption, sizeof(szCaption));
 
 								DialogBoxParam(hGlobalInstance, (LPCTSTR)PARTIALDUMP, hDlg, PartialDumpProc, 0);
 							}
 							else
 							{
-								CloseHandle(hProc);
 								MessageBox(hDlg, TEXT("The selected item is not a 32 bits process"), TEXT("Ups!"), MB_ICONERROR);
 							}
+							CloseHandle(hProc);
 						}
 						else
 						{
-							MessageBox(hDlg, TEXT("Couldn't receive process handle!"), TEXT("VSD v1.0"), MB_ICONERROR);
+							MessageBox(hDlg, TEXT("Couldn't receive process handle!"), TEXT("VSD v2.0"), MB_ICONERROR);
 						}
 					}
 					break;
@@ -1312,8 +2927,6 @@ BOOL CALLBACK AppDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 						{
 							if((RunningOnWow64 && IsWow64(hProc)) || !RunningOnWow64)
 							{
-								CloseHandle(hProc);
-
 								iGlobalPid = iPid;
 								
 								ListView_GetItemText(hList, item, IB_COLUMN, szAddr, sizeof(szAddr));
@@ -1328,12 +2941,12 @@ BOOL CALLBACK AppDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 							}
 							else
 							{
-								CloseHandle(hProc);
 								MessageBox(hDlg, TEXT("The selected item is not a 32 bits process"), TEXT("Ups!"), MB_ICONERROR);
 							}
+							CloseHandle(hProc);
 						}
 						else
-							MessageBox(hDlg, TEXT("Couldn't receive process handle!"), TEXT("VSD v1.0"), MB_ICONERROR);
+							MessageBox(hDlg, TEXT("Couldn't receive process handle!"), TEXT("VSD v2.0"), MB_ICONERROR);
 					}
 					break;
 
@@ -1351,20 +2964,20 @@ BOOL CALLBACK AppDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 								// before call the DumpRegionProc, we update the iGlobalPid variable
 								iGlobalPid = iPid;
 
-								// close the handle of the process
-								CloseHandle(hProc);
+								ListView_GetItemText(hList, item, PATH_COLUMN, szCaption, sizeof(szCaption));
 
 								// create the Dialog to show the virtual sections of the corresponding process
 								DialogBoxParam(hGlobalInstance, (LPCTSTR)SECTIONSDLG, hDlg, DumpRegionProc, 0);
 							}
 							else
 							{
-								CloseHandle(hProc);
 								MessageBox(hDlg, TEXT("The selected item is not a 32 bits process"), TEXT("Ups!"), MB_ICONERROR);
 							}
+							// close the handle of the process
+							CloseHandle(hProc);
 						}
 						else
-							MessageBox(hDlg, TEXT("Couldn't receive process handle!"), TEXT("VSD v1.0"), MB_ICONERROR);
+							MessageBox(hDlg, TEXT("Couldn't receive process handle!"), TEXT("VSD v2.0"), MB_ICONERROR);
 					}
 					break;
 
@@ -1375,6 +2988,37 @@ BOOL CALLBACK AppDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 				case IDM_SELECTALL:
 					SelectAllItems(hList);
 					break;
+
+				case IDM_PATCH_PROCESS:
+					item = ListView_GetNextItem(hList, -1, LVNI_SELECTED);
+
+					if( item!= -1)
+					{
+						DWORD iPid = ListView_GetPidFromItem(hList, item);
+						hProc = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, iPid);
+						if(hProc != NULL)
+						{
+							if((RunningOnWow64 && IsWow64(hProc)) || !RunningOnWow64)
+							{
+								// before call the DumpRegionProc, we update the iGlobalPid variable
+								iGlobalPid = iPid;
+
+								ListView_GetItemText(hList, item, PATH_COLUMN, szCaption, sizeof(szCaption));
+
+								// create the Dialog to show the virtual sections of the corresponding process
+								DialogBoxParam(hGlobalInstance, (LPCTSTR)PATCHPROCESSDLG, hDlg, PatchProcessDlgProc, 0);
+							}
+							else
+							{
+								MessageBox(hDlg, TEXT("The selected item is not a 32 bits process"), TEXT("Ups!"), MB_ICONERROR);
+							}
+							CloseHandle(hProc);
+						}
+						else
+							MessageBox(hDlg, TEXT("Couldn't receive process handle!"), TEXT("VSD v2.0"), MB_ICONERROR);
+					}
+					break;
+					
 				default: break;
 			}
 
@@ -1387,6 +3031,102 @@ BOOL CALLBACK AppDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 				//	MessageBox(hDlg, TEXT("Are you sure you want to quit?"), TEXT("Exit VSD?"), MB_OK);
 				//	break;
 
+				case IDM_THREADS1:
+					item = ListView_GetNextItem(hList, -1, LVNI_SELECTED); 
+
+					if(item != -1)
+					{
+							
+						iPid = ListView_GetPidFromItem(hList, item);
+
+						hProc = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, iPid);
+						if(hProc != NULL)
+						{
+							if((RunningOnWow64 && IsWow64(hProc)) || !RunningOnWow64)
+							{
+								iGlobalPid = iPid;
+
+								ListView_GetItemText(hList, item, PATH_COLUMN, szCaption, sizeof(szCaption));
+
+								DialogBoxParam(hGlobalInstance, (LPCTSTR)THREADSDLG, hDlg, ThreadsDlgProc, 0);
+							}
+							else
+							{
+								MessageBox(hDlg, TEXT("The selected item is not a 32 bits process"), TEXT("Ups!"), MB_ICONERROR);
+							}
+							CloseHandle(hProc);
+						}
+						else
+							MessageBox(hDlg, TEXT("Couldn't not receive process handle!"), TEXT("VSD v2.0"), MB_ICONERROR);
+					}
+					break;
+
+				case IDM_MODULES1:
+					item = ListView_GetNextItem(hList, -1, LVNI_SELECTED);
+					if(item != -1)
+					{
+						iPid = ListView_GetPidFromItem(hList, item);
+						hProc = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, iPid);
+						if(hProc != NULL)
+						{
+							if((RunningOnWow64 && IsWow64(hProc)) || !RunningOnWow64)
+							{
+								iGlobalPid = iPid;
+								
+								bGlobalPastePEHeader = IsDlgButtonChecked(hDlg, PASTEPEHEADER);
+								bGlobalFixHeader = IsDlgButtonChecked(hDlg, FIXPEHEADER);
+
+								//ListView_GetItemText(hList, item, IB_COLUMN, szAddr, sizeof(szAddr));
+								//ListView_GetItemText(hList, item, IZ_COLUMN, szSize, sizeof(szSize));
+
+								//RegionAddr = strtol(szAddr, 0, 16);
+								//RegionSize = strtol(szSize, 0, 16);
+								ListView_GetItemText(hList, item, PATH_COLUMN, szCaption, sizeof(szCaption));
+
+								DialogBoxParam(hGlobalInstance, (LPCTSTR)MODULESDLG, hDlg, EnumModulesDlgProc, 0);
+							}
+							else
+							{
+								MessageBox(hDlg, TEXT("The selected item is not a 32 bits process"), TEXT("Ups!"), MB_ICONERROR);
+							}
+							CloseHandle(hProc);
+						}
+						else
+						{
+							MessageBox(hDlg, TEXT("Couldn't receive process handle!"), TEXT("VSD v2.0"), MB_ICONERROR);
+						}
+					}
+					break;
+
+				case IDM_HANDLES1:
+					item = ListView_GetNextItem(hList, -1, LVNI_SELECTED);
+					if(item != -1)
+					{
+						iPid = ListView_GetPidFromItem(hList, item);
+						hProc = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, iPid);
+						if(hProc != NULL)
+						{
+							if((RunningOnWow64 && IsWow64(hProc)) || !RunningOnWow64)
+							{
+								iGlobalPid = iPid;
+
+								ListView_GetItemText(hList, item, PATH_COLUMN, szCaption, sizeof(szCaption));
+
+								DialogBoxParam(hGlobalInstance, (LPCTSTR)HANDLESDLG, hDlg, EnumHandlesDlgProc, 0);
+							}
+							else
+							{
+								MessageBox(hDlg, TEXT("The selected item is not a 32 bits process"), TEXT("Ups!"), MB_ICONERROR);
+							}
+							CloseHandle(hProc);
+						}
+						else
+						{
+							MessageBox(hDlg, TEXT("Couldn't receive process handle!"), TEXT("VSD v2.0"), MB_ICONERROR);
+						}
+					}
+					break;
+
 				case EXCLUDE_X64_PROCS:
 					RefreshLV(hDlg, hList);
 					break;
@@ -1395,14 +3135,21 @@ BOOL CALLBACK AppDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 					RefreshLV(hDlg, hList);
 					break;
 
+				case IDM_ABOUT1:
 				case BT_ABOUT:
 					ShowAboutInfo(hDlg);
 					break;
 
+				case IDM_EXIT1:
 				case IDCANCEL:
 					if(MessageBox(hDlg, TEXT("Are you sure you want to quit?"), TEXT("Exit VSD?"), MB_YESNO) == IDYES)
 					{
-						DestroyMenu(hMenu);
+						// destroy opened menu handles
+						DestroyMenu(hMainMenu);
+						DestroyMenu(hViewSubMenu);
+						DestroyMenu(hDumpSubMenu);
+
+						// close the main dialog
 						EndDialog(hDlg, 0);
 					}
 					break;
@@ -1627,12 +3374,440 @@ void SortRegionsListView(HWND MyhList, int iSubItem)
 	}
 }
 
+void CreateColumnsModulesLV(HWND MyhList)
+{
+	int index;
+	LVCOLUMN lvCol = {0};
+	char* lvColTitles[] = {"Name", "ImageBase", "ImageSize"};
+	char szFmtText[MAX_PATH];
+
+	for(index = 0; index < 3; index++)
+	{
+		lvCol.mask = LVCF_TEXT | LVCF_SUBITEM | LVCF_WIDTH | LVCF_IDEALWIDTH;
+		lvCol.pszText = lvColTitles[index];
+
+		if(index)
+			lvCol.cx = lvCol.cxIdeal = 150;
+		else
+			lvCol.cx = lvCol.cxIdeal = 250;
+
+		lvCol.cchTextMax = strlen(lvColTitles[index]);
+
+		if(ListView_InsertColumn(MyhList, index, &lvCol) == -1)
+		{
+			sprintf_s(szFmtText, sizeof(szFmtText), "Couldn't insert column %d", index);
+			MessageBox(MyGetWindowOwner(MyhList), szFmtText, TEXT("Ups!"), MB_ICONERROR);
+		}
+	}
+}
+
+HWND PopulateModulesLV(HWND hDlg)
+{
+	HWND hMyList;
+
+	hMyList = GetDlgItem(hDlg, MODULESLV);
+
+	if(hMyList)
+	{
+		/*
+			ComCtl32.dll version 6 has problems with LVS_EX_GRIDLINES when its scrolled vertically.
+			An option to avoid this issue is to disable the LVS_EX_GRIDLINES style.
+			Another option is to disable the Windows XP Style.
+
+			* http://stackoverflow.com/questions/1416793/listview-gridlines-issue
+			* http://www.ureader.com/msg/1484143.aspx
+		*/
+		ListView_SetExtendedListViewStyle(hMyList, LVS_EX_GRIDLINES | LVS_EX_FULLROWSELECT | LVS_SORTASCENDING);
+		
+		CreateColumnsModulesLV(hMyList);
+		MyEnumProcessModules(hDlg, hMyList);
+	}
+
+	return hMyList;
+}
+
+int MyEnumProcessModules(HWND hDlg, HWND MyhList)
+{
+	HANDLE hProc;
+	HMODULE hMods[MAX_MODULES];
+	DWORD cbNeeded;
+	LVITEM lvItem;
+	MODULEINFO ModInfo;
+	char szText[MAX_PATH], procName[MAX_PATH];
+	unsigned int i;
+
+	hProc = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, iGlobalPid);
+	if(hProc != NULL)
+	{
+		if(EnumProcessModules(hProc, hMods, sizeof(hMods), &cbNeeded))
+		{
+			for(i = 0; i < (cbNeeded/sizeof(DWORD)); i++)
+			{
+				if(GetModuleInformation(hProc, hMods[i], &ModInfo, sizeof(ModInfo)))
+				{
+					memset(&lvItem, 0, sizeof(lvItem));
+
+					lvItem.mask = LVIF_TEXT | LVIF_PARAM;
+					lvItem.cchTextMax = MAX_PATH;
+					lvItem.iItem = lvItem.lParam = i;
+					lvItem.iSubItem = 0;
+
+					if(ListView_InsertItem(MyhList, &lvItem) != -1)
+					{				
+						GetModuleFileNameEx(hProc, hMods[i], procName, sizeof(procName)/sizeof(char));
+
+						lowercase(procName);
+
+						ListView_SetItemText(MyhList, i, MODULE_NAME_COL, procName);
+
+						sprintf_s(szText, sizeof(szText), "%08X", ModInfo.lpBaseOfDll);
+						ListView_SetItemText(MyhList, i, MODULE_IMAGEBASE_COL, szText);
+
+						sprintf_s(szText, sizeof(szText), "%08X", ModInfo.SizeOfImage);
+						ListView_SetItemText(MyhList, i, MODULE_IMAGESIZE_COL, szText);
+					}
+					else
+					{
+						MessageBox(NULL, TEXT("Couldn't insert item!"), TEXT("Ups!"), MB_ICONERROR);
+					}
+				}
+			}
+		}
+		CloseHandle(hProc);
+	}
+
+	sprintf_s(szText, sizeof(szText), "Total modules: %d", (cbNeeded/sizeof(DWORD)));
+	SetDlgItemText(hDlg, TOTAL_MODULES, szText);
+
+	return RTN_OK;
+}
+
+void SortModulesListView(HWND MyhList, int iSubItem)
+{
+	switch(iSubItem)
+	{
+		case MODULE_NAME_COL:
+			if ((ModuleNameSortOrder == NO_SORT) || (ModuleNameSortOrder == MODULE_NAME_COL_SORT_DESCENDING))
+			{
+				ListView_SortItems(MyhList, ModulesCompareProc, MODULE_NAME_COL_SORT_ASCENDING);
+				UpdatelParam(MyhList);
+				ModuleNameSortOrder = MODULE_NAME_COL_SORT_ASCENDING;
+			}
+			else
+			{
+				ListView_SortItems(MyhList, ModulesCompareProc, MODULE_NAME_COL_SORT_DESCENDING);
+				UpdatelParam(MyhList);
+				ModuleNameSortOrder = MODULE_NAME_COL_SORT_DESCENDING;
+			}
+			break;
+
+		case MODULE_IMAGEBASE_COL:
+			if ((ModuleImageBaseSortOrder == NO_SORT) || (ModuleImageBaseSortOrder == MODULE_IMAGEBASE_COL_SORT_DESCENDING))
+			{
+				ListView_SortItems(MyhList, ModulesCompareProc, MODULE_IMAGEBASE_COL_SORT_ASCENDING);
+				UpdatelParam(MyhList);
+				ModuleImageBaseSortOrder = MODULE_IMAGEBASE_COL_SORT_ASCENDING;
+			}
+			else
+			{
+				ListView_SortItems(MyhList, ModulesCompareProc, MODULE_IMAGEBASE_COL_SORT_DESCENDING);
+				UpdatelParam(MyhList);
+				ModuleImageBaseSortOrder = MODULE_IMAGEBASE_COL_SORT_DESCENDING;
+			}
+			break;
+
+		case MODULE_IMAGESIZE_COL:
+			if ((ModuleImageSizeSortOrder == NO_SORT) || (ModuleImageSizeSortOrder == MODULE_IMAGESIZE_COL_SORT_DESCENDING))
+			{
+				ListView_SortItems(MyhList, ModulesCompareProc, MODULE_IMAGESIZE_COL_SORT_ASCENDING);
+				UpdatelParam(MyhList);
+				ModuleImageSizeSortOrder = MODULE_IMAGESIZE_COL_SORT_ASCENDING;
+			}
+			else
+			{
+				ListView_SortItems(MyhList, ModulesCompareProc, MODULE_IMAGESIZE_COL_SORT_DESCENDING);
+				UpdatelParam(MyhList);
+				ModuleImageSizeSortOrder = MODULE_IMAGESIZE_COL_SORT_DESCENDING;
+			}
+			break;
+
+		default: break;
+	}
+}
+
+BOOL CALLBACK EnumModulesDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+	HANDLE hProc;
+	int SelItem, retval;
+	char szAddr[9], szSize[9], ModuleName[MAX_PATH];
+
+	switch(uMsg)
+	{
+		case WM_INITDIALOG:
+			SetClassLongPtr(hDlg, GCLP_HICON, (long)LoadIcon(0, IDI_INFORMATION));
+
+			sprintf_s(ModuleName, sizeof(ModuleName), "Loaded Modules - [Process: %s - PID: %d]", szCaption, iGlobalPid);
+			SetWindowText(hDlg, ModuleName);
+
+			hModulesCopy2Clip = CreatePopupMenu();
+			AppendMenu(hModulesCopy2Clip, MF_STRING, IDM_SELECTALL, TEXT("&Select All"));
+			AppendMenu(hModulesCopy2Clip, MF_STRING, IDM_COPY2CLIPBOARD, TEXT("&Copy to Clipboard"));
+
+			InsertMenu(hModulesCopy2Clip, 2, MF_SEPARATOR, 0, "-");
+
+			hDumpModuleSubMenu = CreatePopupMenu();
+			InsertMenu(hModulesCopy2Clip, 2, MF_POPUP, (UINT)hDumpModuleSubMenu, TEXT("&Dump"));
+			AppendMenu(hDumpModuleSubMenu, MF_STRING, IDM_DUMP_FULL, TEXT("&Full"));
+			AppendMenu(hDumpModuleSubMenu, MF_STRING, IDM_DUMP_PARTIAL, TEXT("&Partial"));
+
+			hModulesLV = PopulateModulesLV(hDlg);
+
+			return 1;
+
+		case WM_NOTIFY:
+			switch(LOWORD(wParam))
+			{
+				case MODULESLV:
+					switch(((LPNMHDR)lParam)->code)
+					{
+						case LVN_COLUMNCLICK:
+							{
+								NMLISTVIEW* pListView = (NMLISTVIEW*)lParam;
+								SortModulesListView(hModulesLV, pListView->iSubItem);
+							}
+							break;
+						default: break;
+					}
+				default: break;
+			}
+			return 0;
+
+		case WM_CONTEXTMENU:
+			GetCursorPos(&pt2);
+			SelItem = TrackPopupMenuEx(hModulesCopy2Clip, TPM_RETURNCMD, pt2.x, pt2.y, hDlg, NULL);
+
+			switch(SelItem)
+			{
+				case IDM_COPY2CLIPBOARD:
+					CopyDataToClipBoard(hModulesLV, 3);
+					break;
+
+				case IDM_SELECTALL:
+					SelectAllItems(hModulesLV);
+					break;
+
+				case IDM_DUMP_FULL:
+					item = ListView_GetNextItem(hModulesLV, -1, LVNI_SELECTED);
+										
+					if( item != -1)
+					{
+						hProc = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, iGlobalPid);
+						if(hProc != NULL)
+						{
+							if((RunningOnWow64 && IsWow64(hProc)) || !RunningOnWow64)
+							{
+								ListView_GetItemText(hModulesLV, item, MODULE_IMAGEBASE_COL, szAddr, sizeof(szAddr));
+								ListView_GetItemText(hModulesLV, item, MODULE_IMAGESIZE_COL, szSize, sizeof(szSize));
+								ListView_GetItemText(hModulesLV, item, MODULE_NAME_COL, ModuleName, sizeof(ModuleName));
+
+								retval = MyDumpModuleFunction((void*)strtol(szAddr, NULL, 16), strtol(szSize, NULL, 16), ModuleName, DUMPFULL, bGlobalPastePEHeader, bGlobalFixHeader,  hDlg);
+
+								ValidateResult(retval);
+							}
+							else
+							{
+								MessageBox(hDlg, TEXT("The selected item is not a 32 bits process"), TEXT("Ups!"), MB_ICONERROR);
+							}
+							CloseHandle(hProc);
+						}
+						else
+							MessageBox(hDlg, TEXT("Couldn't receive process handle!"), TEXT("VSD v2.0"), MB_ICONERROR);
+					}
+					break;
+				
+				case IDM_DUMP_PARTIAL:
+					item = ListView_GetNextItem(hModulesLV, -1, LVNI_SELECTED);
+										
+					if( item != -1)
+					{
+						hProc = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, iGlobalPid);
+						if(hProc != NULL)
+						{
+							if((RunningOnWow64 && IsWow64(hProc)) || !RunningOnWow64)
+							{
+								ListView_GetItemText(hModulesLV, item, MODULE_IMAGEBASE_COL, szAddr, sizeof(szAddr));
+								ListView_GetItemText(hModulesLV, item, MODULE_IMAGESIZE_COL, szSize, sizeof(szSize));
+								ListView_GetItemText(hModulesLV, item, MODULE_NAME_COL, szGlobalModuleName, sizeof(szGlobalModuleName));
+
+								RegionAddr = strtol(szAddr, 0, 16);
+								RegionSize = strtol(szSize, 0, 16);
+
+								DumpingModule = TRUE;
+
+								ListView_GetItemText(hModulesLV, item, MODULE_NAME_COL, szCaption, sizeof(szCaption));
+
+								DialogBoxParam(hGlobalInstance, (LPCTSTR)PARTIALDUMP, hDlg, PartialDumpProc, 0);
+							}
+							else
+							{
+								MessageBox(hDlg, TEXT("The selected item is not a 32 bits process"), TEXT("Ups!"), MB_ICONERROR);
+							}
+							CloseHandle(hProc);
+						}
+						else
+							MessageBox(hDlg, TEXT("Couldn't receive process handle!"), TEXT("VSD v2.0"), MB_ICONERROR);
+					}
+					break;
+
+				default: break;
+			}
+
+			return 0;
+
+		case WM_COMMAND:
+			switch(wParam)
+			{
+				case IDOK:
+				case IDCANCEL:
+					EndDialog(hDlg, 0);
+			}
+	}
+	return 0;
+}
+
+void SortHandlesListView(HWND MyhList, int iSubItem)
+{
+	switch(iSubItem)
+	{
+		case HANDLE_TYPE_COL:
+			if ((HandleTypeSortOrder == NO_SORT) || (HandleTypeSortOrder == HANDLE_TYPE_COL_SORT_DESCENDING))
+			{
+				ListView_SortItems(MyhList, HandlesCompareProc, HANDLE_TYPE_COL_SORT_ASCENDING);
+				UpdatelParam(MyhList);
+				HandleTypeSortOrder = HANDLE_TYPE_COL_SORT_ASCENDING;
+			}
+			else
+			{
+				ListView_SortItems(MyhList, HandlesCompareProc, HANDLE_TYPE_COL_SORT_DESCENDING);
+				UpdatelParam(MyhList);
+				HandleTypeSortOrder = HANDLE_TYPE_COL_SORT_DESCENDING;
+			}
+			break;
+
+		case HANDLE_NAME_COL:
+			if ((HandleNameSortOrder == NO_SORT) || (HandleNameSortOrder == HANDLE_NAME_COL_SORT_DESCENDING))
+			{
+				ListView_SortItems(MyhList, HandlesCompareProc, HANDLE_NAME_COL_SORT_ASCENDING);
+				UpdatelParam(MyhList);
+				HandleNameSortOrder = HANDLE_NAME_COL_SORT_ASCENDING;
+			}
+			else
+			{
+				ListView_SortItems(MyhList, HandlesCompareProc, HANDLE_NAME_COL_SORT_DESCENDING);
+				UpdatelParam(MyhList);
+				HandleNameSortOrder = HANDLE_NAME_COL_SORT_DESCENDING;
+			}
+			break;
+		
+		case HANDLE_COL:
+			if ((HandleSortOrder == NO_SORT) || (HandleSortOrder == HANDLE_COL_SORT_DESCENDING))
+			{
+				ListView_SortItems(MyhList, HandlesCompareProc, HANDLE_COL_SORT_ASCENDING);
+				UpdatelParam(MyhList);
+				HandleSortOrder = HANDLE_COL_SORT_ASCENDING;
+			}
+			else
+			{
+				ListView_SortItems(MyhList, HandlesCompareProc, HANDLE_COL_SORT_DESCENDING);
+				UpdatelParam(MyhList);
+				HandleSortOrder = HANDLE_COL_SORT_DESCENDING;
+			}
+			break;
+
+		default: break;
+	}
+}
+
+BOOL CALLBACK EnumHandlesDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+	DWORD SetItem;
+	char szText[MAX_PATH];
+
+	switch(uMsg)
+	{
+		case WM_INITDIALOG:
+			SetClassLongPtr(hDlg, GCLP_HICON, (long)LoadIcon(0, IDI_INFORMATION));
+
+			sprintf_s(szText, sizeof(szText), "Handles - [Process: %s - PID: %d]", szCaption, iGlobalPid);
+			SetWindowText(hDlg, szText);
+
+			hHandlesCopy2Clip = CreatePopupMenu();
+			AppendMenu(hHandlesCopy2Clip, MF_STRING, IDM_SELECTALL, TEXT("&Select All"));
+			AppendMenu(hHandlesCopy2Clip, MF_STRING, IDM_COPY2CLIPBOARD, TEXT("&Copy to Clipboard"));
+
+			hHandlesLV = PopulateHandlesLV(hDlg);
+
+			return 1;
+
+		case WM_NOTIFY:
+			switch(LOWORD(wParam))
+			{
+				case HANDLESLV:
+					switch(((LPNMHDR)lParam)->code)
+					{
+						case LVN_COLUMNCLICK:
+							{
+								NMLISTVIEW* pListView = (NMLISTVIEW*)lParam;
+								SortHandlesListView(hHandlesLV, pListView->iSubItem);
+							}
+							break;
+						default: break;
+					}
+				default: break;
+			}
+			return 0;
+
+		case WM_CONTEXTMENU:
+			GetCursorPos(&pt2);
+			SetItem = TrackPopupMenuEx(hHandlesCopy2Clip, TPM_RETURNCMD, pt2.x, pt2.y, hDlg, NULL);
+
+			switch(SetItem)
+			{
+				case IDM_COPY2CLIPBOARD:
+					CopyDataToClipBoard(hHandlesLV, 2);
+					break;
+
+				case IDM_SELECTALL:
+					SelectAllItems(hHandlesLV);
+					break;
+
+				default: break;
+			}
+
+			return 0;
+
+		case WM_COMMAND:
+			switch(wParam)
+			{
+				case IDCANCEL:
+				case IDOK:
+					EndDialog(hDlg, 0);
+			}
+	}
+	return 0;
+}
+
+PVOID GetLibraryProcAddress(PSTR LibraryName, PSTR ProcName)
+{
+    return GetProcAddress(GetModuleHandleA(LibraryName), ProcName);
+}
+
 BOOL CALLBACK DumpRegionProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
 	DWORD SetItem;
 	int iPos, retval, iPerPage, CurPos, iTop, lastItem;
 	HWND hAddrEdit, hSizeEdit;
-	char Address[9], Size[9];
+	char Address[9], Size[9], szText[MAX_PATH];
 
 	switch (uMsg)
 	{
@@ -1752,6 +3927,10 @@ BOOL CALLBACK DumpRegionProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 		case WM_INITDIALOG:
 			SetClassLongPtr(hDlg, GCLP_HICON, (long)LoadIcon(0, IDI_INFORMATION));
 
+			// set the new window caption
+			sprintf_s(szText, sizeof(szText), "Region Dump Information - [Process: %s - PID: %d]", szCaption, iGlobalPid);
+			SetWindowText(hDlg, szText);
+
 			// get handles for editboxes controls
 			hAddrEdit = GetDlgItem(hDlg, ADDRESS_EDIT);
 			hSizeEdit = GetDlgItem(hDlg, SIZE_EDIT);
@@ -1760,8 +3939,8 @@ BOOL CALLBACK DumpRegionProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 			Edit_LimitText(hSizeEdit, 8);
 
 			hCopy2Clip = CreatePopupMenu();
-			AppendMenu(hCopy2Clip, MF_STRING, IDM_SELECTALL, TEXT("Select All"));
-			AppendMenu(hCopy2Clip, MF_STRING, IDM_COPY2CLIPBOARD, TEXT("Copy to Clipboard"));
+			AppendMenu(hCopy2Clip, MF_STRING, IDM_SELECTALL, TEXT("&Select All"));
+			AppendMenu(hCopy2Clip, MF_STRING, IDM_COPY2CLIPBOARD, TEXT("&Copy to Clipboard"));
 
 			hRegionsLV = PopulateRegionLV(hDlg);
 
@@ -1824,7 +4003,7 @@ BOOL CALLBACK DumpRegionProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 					}
 					else
 					{
-						MessageBox(hDlg, TEXT("You didn't enter an Address"), TEXT("Are you kidding?"), MB_ICONERROR);
+						MessageBox(hDlg, TEXT("You didn't enter an Address"), "Are you kidding?", MB_ICONERROR);
 					}
 					break;
 
@@ -2200,4 +4379,75 @@ HWND PopulateListView(HWND hDlg)
 	}
 
 	return hMyList;
+}
+
+DWORD GetSuspendThreadCount(HANDLE hThread)
+{
+	DWORD retval;
+	retval = SuspendThread(hThread);
+	ResumeThread(hThread);
+	return retval;
+}
+
+DWORD GetResumeThreadCount(HANDLE hThread)
+{
+	DWORD retval;
+	retval = ResumeThread(hThread);
+	return retval;
+}
+
+LPVOID GetThreadTebAddress(DWORD ThreadId)
+{
+	/*
+		Thanks to j00ru for the hint about remote teb method!.
+
+		* TEB of the current thread: fs:[18h].
+		* TEB of a remote thread: you have to: OpenThread + GetThreadContext +
+		GetThreadSelectorEntry(CONTEXT.SegFs) + Translate the result of the
+		function to an address + CloseThread.
+
+		* Translate result of GetThreadSelectorEntry to an address: http://gynvael.coldwind.pl/?id=93
+	*/
+
+	HANDLE hThread;
+	//DWORD BytesRead;
+	LPVOID PebAddress = NULL;
+	CONTEXT tContext;
+	LDT_ENTRY ldtEntry;
+
+	hThread = OpenThread(THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION, FALSE, ThreadId);
+	if(hThread != NULL)
+	{
+		tContext.ContextFlags = CONTEXT_FULL | CONTEXT_DEBUG_REGISTERS;
+
+		if(GetThreadContext(hThread, &tContext))
+		{
+			if(GetThreadSelectorEntry(hThread, tContext.SegFs, &ldtEntry))
+				PebAddress = (LPVOID)(ldtEntry.BaseLow | (ldtEntry.HighWord.Bits.BaseMid << 16) | (ldtEntry.HighWord.Bits.BaseHi << 24));
+		}
+		CloseHandle(hThread);
+	}
+
+	return PebAddress;
+}
+
+const char* DwordToHex(DWORD value)
+{
+	char szText[MAX_PATH];
+
+	sprintf_s(szText, sizeof(szText), "%08X", value);
+	return szText;
+}
+
+void DebugMe(char* msgText)
+{
+	MessageBox(NULL, msgText, TEXT("Debug message"), MB_OK);
+}
+
+void DebugShowDword(unsigned long dword)
+{
+	char szText[MAX_PATH];
+
+	sprintf_s(szText, sizeof(szText), "Value: %08X", dword);
+	MessageBox(NULL, szText, TEXT("Debug message"), MB_OK);
 }
