@@ -27,6 +27,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <Strsafe.h>
 #include <Windowsx.h>
 #include <tlhelp32.h>
+#include <Shellapi.h>
 
 /* 
 	Comment this header ("stdafx.h") to avoid the ComCtl32.dll version 6
@@ -42,6 +43,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #pragma comment(lib, "Comdlg32.lib")
 #pragma comment(lib, "User32.lib")
 #pragma comment(lib, "Advapi32.lib")
+#pragma comment(lib, "Shell32.lib")
 
 typedef BOOL (WINAPI *LPFN_ISWOW64PROCESS) (HANDLE, PBOOL);
 LPFN_ISWOW64PROCESS fnIsWow64Process;
@@ -123,6 +125,14 @@ typedef enum _KWAIT_REASON
 #define IDM_SUSPEND_THREAD 10102
 #define IDM_TERMINATE_THREAD 10103
 #define IDM_REFRESH_THREAD_LIST 10104
+#define IDM_REALTIME 10105
+#define IDM_HIGH 10106
+#define IDM_ABOVENORMAL 10107
+#define IDM_NORMAL 10108
+#define IDM_BELOWNORMAL 10109
+#define IDM_IDLE 10110
+#define IDM_SUSPENDPROCESS 10111
+#define IDM_RESUMEPROCESS 10112
 
 //#define HOTKEY_CTRL_C 12345
 //#define HOTKEY_CTRL_A 12346
@@ -632,7 +642,7 @@ void DoAction(HWND, int);
 void DebugMe(char* msgText);
 void DebugShowDword(unsigned long);
 
-int EnumProcessHandles(HWND);
+int EnumProcessHandles(HWND, bool);
 int MyEnumProcessModules(HWND, HWND);
 int EnumProcessThreads(HWND);
 int MyDumpModuleFunction(void*, DWORD, char*, int, BOOL, BOOL, HWND);
@@ -653,6 +663,7 @@ BOOL CALLBACK DumpRegionProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 BOOL CALLBACK PartialDumpProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam);
 BOOL CALLBACK ThreadsDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam);
 BOOL CALLBACK PatchProcessDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam);
+BOOL CALLBACK VSDOptionsProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam);
 BOOL CALLBACK Filter(HWND, UINT, WPARAM, LPARAM);
 
 BOOL IsWow64(HANDLE hProc);
@@ -668,22 +679,27 @@ HWND MyGetWindowOwner(HWND);
 HWND PopulateListView(HWND);
 HWND PopulateModulesLV(HWND);
 
+HANDLE GetProcHandleFromSelectedItem(HWND hlist, DWORD Access);
+
 PVOID GetLibraryProcAddress(PSTR LibraryName, PSTR ProcName);
 
 // global variables
 int item;
 BOOL RunningOnWow64, HasPrivileges, bGlobalPastePEHeader, bGlobalFixHeader, DumpingModule = FALSE;
 HMODULE hMods[MAX_MODULES];
+HANDLE hvsdini;
 HWND hList, hRegionsLV, hThreadsLV, hHandlesLV, hModulesLV, ExcludeWow64CheckBox = NULL;
 HWND hAddrToPatch, hNroBytesToPatch, hOriginalBytes, hNewBytes;
-HMENU hMainMenu, hViewSubMenu, hDumpModuleSubMenu, hDumpSubMenu, hCopy2Clip, hHandlesCopy2Clip, hModulesCopy2Clip, hThreadMenu;
+HMENU hMainMenu, hViewSubMenu, hDumpModuleSubMenu, hDumpSubMenu, hCopy2Clip, hHandlesCopy2Clip, hModulesCopy2Clip, hThreadMenu, hPriorityListMenu;
 POINT pt, pt2;
 ACCEL MyAccel;
 HACCEL hAccel;
 HINSTANCE hGlobalInstance;
 DWORD iGlobalPid = -1, RegionAddr = -1, RegionSize = -1, pIds[MAX_PIDS];
-char szGlobalModuleName[MAX_PATH], szCaption[MAX_PATH];
 LONG wndproc;
+char szIniName[] = {"\\vsd_config.ini"};
+char szGlobalModuleName[MAX_PATH], szCaption[MAX_PATH], szCurrentDir[MAX_PATH];;
+
 
 // global state variables for sorting
 int PathSortOrder = 0, PidSortOrder = 0, IbSortOrder = 0, IzSortOrder = 0;

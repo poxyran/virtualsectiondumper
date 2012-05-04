@@ -1,7 +1,7 @@
 /* 
 $Id$
 
-Virtual Section Dumper v2.0 x86
+Virtual Section Dumper v2.1 x86
 
 Copyright (C) 2012 +NCR/CRC! [ReVeRsEr] http://crackinglandia.blogspot.com
 
@@ -2081,8 +2081,15 @@ void CopyDataToClipBoard(HWND MyhList, int MaxCols)
 
 void ShowAboutInfo(HWND hDlg)
 {
-	MessageBox(hDlg, TEXT("Virtual Section Dumper v2.0\n\nCoded by:\n\t +NCR/CRC! [ReVeRsEr]\n\ncrackinglandia(at)gmail(dot)com\n@crackinglandia\n\nGeneral Pico, La Pampa\nArgentina"), 
-		TEXT("Virtual Section Dumper v2.0"),
+	MessageBox(hDlg, TEXT("Virtual Section Dumper v2.1\n\nCoded by:\n\t +NCR/CRC! [ReVeRsEr]\n\n" 
+		"Thanks to:\n"
+		"* Marciano for beta testing\n"
+		"* UlisesSoft for updatevsd\n"
+		"* Guan de Dio for his ideas to improve VSD\n\n"
+		"crackinglandia(at)gmail(dot)com\n"
+		"@crackinglandia\n\n"
+		"General Pico, La Pampa\nArgentina"), 
+		TEXT("Virtual Section Dumper v2.1"),
 		MB_ICONINFORMATION);
 }
 
@@ -2105,7 +2112,7 @@ HWND PopulateHandlesLV(HWND hDlg)
 		ListView_SetExtendedListViewStyle(hMyList, LVS_EX_GRIDLINES | LVS_EX_FULLROWSELECT | LVS_SORTASCENDING);
 		
 		CreateColumnsHandlesLV(hMyList);
-		EnumProcessHandles(hMyList);
+		EnumProcessHandles(hMyList, false);
 	}
 
 	return hMyList;
@@ -2115,7 +2122,7 @@ HWND PopulateHandlesLV(HWND hDlg)
  this code was taken from http://forum.sysinternals.com/uploads/26792/handles.zip
  more information: http://forum.sysinternals.com/howto-enumerate-handles_topic18892.html
 */
-int EnumProcessHandles(HWND MyhList)
+int EnumProcessHandles(HWND MyhList, bool IgnoreUnnamedObjects)
 {
 	NTSTATUS status;
 	PSYSTEM_HANDLE_INFORMATION handleInfo;
@@ -2254,29 +2261,32 @@ int EnumProcessHandles(HWND MyhList)
         }
 		else
 		{
-			// we also display those object we couldn't resolve the name
-			memset(&lvItem, 0, sizeof(lvItem));
-
-			lvItem.mask = LVIF_TEXT | LVIF_PARAM;
-			lvItem.cchTextMax = MAX_PATH;
-			lvItem.iItem = lvItem.lParam = iCount;
-			lvItem.iSubItem = 0;
-
-			if(ListView_InsertItem(MyhList, &lvItem) != -1)
+			if(!IgnoreUnnamedObjects)
 			{
-				sprintf_s(szText, sizeof(szText), "%.*S", objectTypeInfo->Name.Length / 2, objectTypeInfo->Name.Buffer);
-				ListView_SetItemText(MyhList, iCount, HANDLE_TYPE_COL, szText);
-				
-				ListView_SetItemText(MyhList, iCount, HANDLE_NAME_COL, "(unnamed)");
-				
-				sprintf_s(szText, sizeof(szText), "%08X", handle.Handle);
-				ListView_SetItemText(MyhList, iCount, HANDLE_COL, szText);
+				// we also display those object we couldn't resolve the name
+				memset(&lvItem, 0, sizeof(lvItem));
 
-				iCount++;
-			}
-			else
-			{
-				MessageBox(NULL, TEXT("Couldn't insert item!"), TEXT("Ups!"), MB_ICONERROR);
+				lvItem.mask = LVIF_TEXT | LVIF_PARAM;
+				lvItem.cchTextMax = MAX_PATH;
+				lvItem.iItem = lvItem.lParam = iCount;
+				lvItem.iSubItem = 0;
+
+				if(ListView_InsertItem(MyhList, &lvItem) != -1)
+				{
+					sprintf_s(szText, sizeof(szText), "%.*S", objectTypeInfo->Name.Length / 2, objectTypeInfo->Name.Buffer);
+					ListView_SetItemText(MyhList, iCount, HANDLE_TYPE_COL, szText);
+				
+					ListView_SetItemText(MyhList, iCount, HANDLE_NAME_COL, "(unnamed)");
+				
+					sprintf_s(szText, sizeof(szText), "%08X", handle.Handle);
+					ListView_SetItemText(MyhList, iCount, HANDLE_COL, szText);
+
+					iCount++;
+				}
+				else
+				{
+					MessageBox(NULL, TEXT("Couldn't insert item!"), TEXT("Ups!"), MB_ICONERROR);
+				}
 			}
 		}
 
@@ -2577,6 +2587,47 @@ void RefreshLV(HWND hWinDlg, HWND myListHandle)
 	ListProcesses(hWinDlg, myListHandle);
 }
 
+int ReadIntFromIniFile(char* szPathToIni, char* AppName, char* Key)
+{
+	return GetPrivateProfileInt(AppName, Key, 0, szPathToIni);
+}
+
+bool WriteIntToIniFile(char* szPathToIni, char* AppName, char* Key, int Value)
+{
+	char szAux[MAX_PATH];
+	
+	_itoa_s(Value, szAux, MAX_PATH, 10);
+	return WritePrivateProfileString(AppName, Key, szAux, szPathToIni); 
+}
+
+HANDLE CreateIniFile(char *Directory)
+{
+	HANDLE hFile;
+
+	strcat(Directory, szIniName);
+	hFile = CreateFile(Directory, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+	
+	if(GetLastError() == ERROR_FILE_NOT_FOUND)
+		hFile = CreateFile(Directory, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+
+	return hFile;
+}
+
+HANDLE GetProcHandleFromSelectedItem(HWND hlist, DWORD Access)
+{
+	HANDLE hProc = NULL;
+	DWORD pid;
+	int item;
+
+	item = ListView_GetNextItem(hlist, -1, LVNI_SELECTED);
+	if(item != -1)
+	{
+		pid = ListView_GetPidFromItem(hlist, item);
+		hProc = OpenProcess(Access, FALSE, pid);
+	}
+	return hProc;
+}
+
 BOOL CALLBACK AppDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
 	DWORD SelItem, iPid;
@@ -2620,7 +2671,7 @@ BOOL CALLBACK AppDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 									}
 								}
 								else
-									MessageBox(hDlg, TEXT("Couldn't not receive process handle!"), TEXT("VSD v2.0"), MB_ICONERROR);
+									MessageBox(hDlg, TEXT("Couldn't not receive process handle!"), TEXT("VSD v2.1"), MB_ICONERROR);
 							}
 							break;
 						
@@ -2657,6 +2708,17 @@ BOOL CALLBACK AppDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 			
 			InsertMenu(hMainMenu, 2, MF_SEPARATOR, 0, "-");
 
+			hPriorityListMenu = CreatePopupMenu();
+			InsertMenu(hMainMenu, 2, MF_POPUP, (UINT)hPriorityListMenu, TEXT("Set Priority"));
+			AppendMenu(hPriorityListMenu, MF_STRING, IDM_REALTIME, TEXT("Realtime:24"));
+			AppendMenu(hPriorityListMenu, MF_STRING, IDM_HIGH, TEXT("High:13"));
+			AppendMenu(hPriorityListMenu, MF_STRING, IDM_ABOVENORMAL, TEXT("Above Normal:10"));
+			AppendMenu(hPriorityListMenu, MF_STRING, IDM_NORMAL, TEXT("Normal:8"));
+			AppendMenu(hPriorityListMenu, MF_STRING, IDM_BELOWNORMAL, TEXT("Below Normal:6"));
+			AppendMenu(hPriorityListMenu, MF_STRING, IDM_IDLE, TEXT("Idle:4"));
+
+			InsertMenu(hMainMenu, 2, MF_SEPARATOR, 0, "-");
+
 			hDumpSubMenu = CreatePopupMenu();
 			InsertMenu(hMainMenu, 2, MF_POPUP, (UINT)hDumpSubMenu, TEXT("&Dump"));
 			AppendMenu(hDumpSubMenu, MF_STRING, IDM_DUMP_FULL, TEXT("&Full"));
@@ -2677,7 +2739,9 @@ BOOL CALLBACK AppDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
 			InsertMenu(hMainMenu, 2, MF_SEPARATOR, 0, "-");
 
-			AppendMenu(hMainMenu, MF_STRING, IDM_DELPROCESS, TEXT("&Kill Process"));
+			AppendMenu(hMainMenu, MF_STRING, IDM_SUSPENDPROCESS, TEXT("Suspend process"));
+			AppendMenu(hMainMenu, MF_STRING, IDM_RESUMEPROCESS, TEXT("Resume rocess"));
+			AppendMenu(hMainMenu, MF_STRING, IDM_DELPROCESS, TEXT("&Kill process"));
 			
 			InsertMenu(hMainMenu, 2, MF_SEPARATOR, 0, "-");
 			
@@ -2735,6 +2799,9 @@ BOOL CALLBACK AppDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 			
 			CheckDlgButton(hDlg, FIXPEHEADER, BST_CHECKED);
 
+			// creates the .ini file for vsd options
+			GetCurrentDirectory(MAX_PATH, szCurrentDir);
+			hvsdini = CreateIniFile(szCurrentDir);
 			return 0;
 
 		case WM_CONTEXTMENU:
@@ -2743,6 +2810,16 @@ BOOL CALLBACK AppDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
 			switch(SelItem)
 			{
+				case IDM_BELOWNORMAL:
+					hProc = GetProcHandleFromSelectedItem(hList, PROCESS_QUERY_INFORMATION | PROCESS_SET_INFORMATION);
+					if(hProc != NULL)
+					{
+						if(GetPriorityClass(hProc) != IDM_BELOWNORMAL)
+							SetPriorityClass(hProc, IDM_BELOWNORMAL);
+						CloseHandle(hProc);
+					}
+					break;
+
 				case IDM_DELPROCESS:
 					item = ListView_GetNextItem(hList, -1, LVNI_SELECTED);
 					if(item != -1)
@@ -2816,7 +2893,7 @@ BOOL CALLBACK AppDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 						}
 						else
 						{
-							MessageBox(hDlg, TEXT("Couldn't receive process handle!"), TEXT("VSD v2.0"), MB_ICONERROR);
+							MessageBox(hDlg, TEXT("Couldn't receive process handle!"), TEXT("VSD v2.1"), MB_ICONERROR);
 						}
 					}
 					break;
@@ -2847,7 +2924,7 @@ BOOL CALLBACK AppDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 							CloseHandle(hProc);
 						}
 						else
-							MessageBox(hDlg, TEXT("Couldn't not receive process handle!"), TEXT("VSD v2.0"), MB_ICONERROR);
+							MessageBox(hDlg, TEXT("Couldn't not receive process handle!"), TEXT("VSD v2.1"), MB_ICONERROR);
 					}
 					break;
 
@@ -2876,7 +2953,7 @@ BOOL CALLBACK AppDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 						}
 						else
 						{
-							MessageBox(hDlg, TEXT("Couldn't receive process handle!"), TEXT("VSD v2.0"), MB_ICONERROR);
+							MessageBox(hDlg, TEXT("Couldn't receive process handle!"), TEXT("VSD v2.1"), MB_ICONERROR);
 						}
 					}
 					break;
@@ -2911,7 +2988,7 @@ BOOL CALLBACK AppDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 						}
 						else
 						{
-							MessageBox(hDlg, TEXT("Couldn't receive process handle!"), TEXT("VSD v2.0"), MB_ICONERROR);
+							MessageBox(hDlg, TEXT("Couldn't receive process handle!"), TEXT("VSD v2.1"), MB_ICONERROR);
 						}
 					}
 					break;
@@ -2946,7 +3023,7 @@ BOOL CALLBACK AppDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 							CloseHandle(hProc);
 						}
 						else
-							MessageBox(hDlg, TEXT("Couldn't receive process handle!"), TEXT("VSD v2.0"), MB_ICONERROR);
+							MessageBox(hDlg, TEXT("Couldn't receive process handle!"), TEXT("VSD v2.1"), MB_ICONERROR);
 					}
 					break;
 
@@ -2977,7 +3054,7 @@ BOOL CALLBACK AppDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 							CloseHandle(hProc);
 						}
 						else
-							MessageBox(hDlg, TEXT("Couldn't receive process handle!"), TEXT("VSD v2.0"), MB_ICONERROR);
+							MessageBox(hDlg, TEXT("Couldn't receive process handle!"), TEXT("VSD v2.1"), MB_ICONERROR);
 					}
 					break;
 
@@ -3015,7 +3092,7 @@ BOOL CALLBACK AppDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 							CloseHandle(hProc);
 						}
 						else
-							MessageBox(hDlg, TEXT("Couldn't receive process handle!"), TEXT("VSD v2.0"), MB_ICONERROR);
+							MessageBox(hDlg, TEXT("Couldn't receive process handle!"), TEXT("VSD v2.1"), MB_ICONERROR);
 					}
 					break;
 					
@@ -3030,6 +3107,26 @@ BOOL CALLBACK AppDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 				//case HOTKEY_CTRL_C:
 				//	MessageBox(hDlg, TEXT("Are you sure you want to quit?"), TEXT("Exit VSD?"), MB_OK);
 				//	break;
+
+				case IDM_CHECK_FOR_UPDATE1:
+					ShellExecute(hDlg, TEXT("open"), TEXT("updatevsd.exe"), NULL, NULL, SW_SHOWNORMAL);
+					break;
+
+				case IDM_SET_OPTIONS:
+					DialogBoxParam(hGlobalInstance, (LPCTSTR)VSDOPTIONSDLG, hDlg, VSDOptionsProc, 0);
+					break;
+				
+				case IDM_CONTACT_THE_AUTHOR1:
+					ShellExecute(hDlg, TEXT("open"), TEXT("mailto:crackinglandia@gmail.com"), NULL, NULL, SW_SHOWNORMAL);
+					break;
+
+				case IDM_VSD_HOME_PAGE1:
+					ShellExecute(hDlg, TEXT("open"), TEXT("http://code.google.com/p/virtualsectiondumper/"), NULL, NULL, SW_SHOWNORMAL);
+					break;
+
+				case IDM_HELP1: 
+					ShellExecute(hDlg, TEXT("open"), TEXT("http://code.google.com/p/virtualsectiondumper/w/list"), NULL, NULL, SW_SHOWNORMAL);
+					break;
 
 				case IDM_THREADS1:
 					item = ListView_GetNextItem(hList, -1, LVNI_SELECTED); 
@@ -3057,7 +3154,7 @@ BOOL CALLBACK AppDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 							CloseHandle(hProc);
 						}
 						else
-							MessageBox(hDlg, TEXT("Couldn't not receive process handle!"), TEXT("VSD v2.0"), MB_ICONERROR);
+							MessageBox(hDlg, TEXT("Couldn't not receive process handle!"), TEXT("VSD v2.1"), MB_ICONERROR);
 					}
 					break;
 
@@ -3093,7 +3190,7 @@ BOOL CALLBACK AppDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 						}
 						else
 						{
-							MessageBox(hDlg, TEXT("Couldn't receive process handle!"), TEXT("VSD v2.0"), MB_ICONERROR);
+							MessageBox(hDlg, TEXT("Couldn't receive process handle!"), TEXT("VSD v2.1"), MB_ICONERROR);
 						}
 					}
 					break;
@@ -3122,7 +3219,7 @@ BOOL CALLBACK AppDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 						}
 						else
 						{
-							MessageBox(hDlg, TEXT("Couldn't receive process handle!"), TEXT("VSD v2.0"), MB_ICONERROR);
+							MessageBox(hDlg, TEXT("Couldn't receive process handle!"), TEXT("VSD v2.1"), MB_ICONERROR);
 						}
 					}
 					break;
@@ -3148,6 +3245,9 @@ BOOL CALLBACK AppDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 						DestroyMenu(hMainMenu);
 						DestroyMenu(hViewSubMenu);
 						DestroyMenu(hDumpSubMenu);
+
+						// close ini file handle
+						CloseHandle(hvsdini);
 
 						// close the main dialog
 						EndDialog(hDlg, 0);
@@ -3621,7 +3721,7 @@ BOOL CALLBACK EnumModulesDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lPa
 							CloseHandle(hProc);
 						}
 						else
-							MessageBox(hDlg, TEXT("Couldn't receive process handle!"), TEXT("VSD v2.0"), MB_ICONERROR);
+							MessageBox(hDlg, TEXT("Couldn't receive process handle!"), TEXT("VSD v2.1"), MB_ICONERROR);
 					}
 					break;
 				
@@ -3655,7 +3755,7 @@ BOOL CALLBACK EnumModulesDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lPa
 							CloseHandle(hProc);
 						}
 						else
-							MessageBox(hDlg, TEXT("Couldn't receive process handle!"), TEXT("VSD v2.0"), MB_ICONERROR);
+							MessageBox(hDlg, TEXT("Couldn't receive process handle!"), TEXT("VSD v2.1"), MB_ICONERROR);
 					}
 					break;
 
@@ -3728,6 +3828,45 @@ void SortHandlesListView(HWND MyhList, int iSubItem)
 	}
 }
 
+BOOL CALLBACK VSDOptionsProc(HWND hWin, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+	switch(uMsg)
+	{
+		case WM_INITDIALOG:
+			if(ReadIntFromIniFile(szCurrentDir, "VSDOPTIONS", "SUSPEND_BEFORE_DUMPING"))
+				CheckDlgButton(hWin, SUSPEND_BEFORE_DUMPING, BST_CHECKED);
+			else
+				CheckDlgButton(hWin, SUSPEND_BEFORE_DUMPING, BST_UNCHECKED);
+
+			SetClassLongPtr(hWin, GCLP_HICON, (long)LoadIcon(0, IDI_INFORMATION));
+			return 1;
+		
+		case WM_COMMAND:
+			switch(wParam)
+			{
+				case CONFIGURE_PROXY:
+					ShellExecute(hWin, TEXT("open"), TEXT("updatevsd.exe"), TEXT("/setting"), NULL, SW_SHOWNORMAL);
+					break;
+
+				case IDCANCEL:
+					EndDialog(hWin, 0);
+					break;
+
+				case IDOK:
+					if(IsDlgButtonChecked(hWin, SUSPEND_BEFORE_DUMPING) == BST_CHECKED)
+						WriteIntToIniFile(szCurrentDir, "VSDOPTIONS", "SUSPEND_BEFORE_DUMPING", 1);
+					else
+						WriteIntToIniFile(szCurrentDir, "VSDOPTIONS", "SUSPEND_BEFORE_DUMPING", 0);
+
+					EndDialog(hWin, 0);
+					break;
+			}
+			break;
+	}
+
+	return 0;
+}
+
 BOOL CALLBACK EnumHandlesDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
 	DWORD SetItem;
@@ -3789,6 +3928,15 @@ BOOL CALLBACK EnumHandlesDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lPa
 		case WM_COMMAND:
 			switch(wParam)
 			{
+				case IGNORE_UNNAMED_OBJECTS:
+					ListView_DeleteAllItems(hHandlesLV);
+
+					if(IsDlgButtonChecked(hDlg, IGNORE_UNNAMED_OBJECTS) == BST_CHECKED)
+						EnumProcessHandles(hHandlesLV, true);
+					else
+						EnumProcessHandles(hHandlesLV, false);
+					break;
+
 				case IDCANCEL:
 				case IDOK:
 					EndDialog(hDlg, 0);
