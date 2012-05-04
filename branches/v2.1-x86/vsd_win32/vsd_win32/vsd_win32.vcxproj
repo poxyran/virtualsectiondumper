@@ -113,7 +113,9 @@
     <ResourceCompile Include="vsd_gui.rc" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="vsd_win32.manifest.xml" />
+    <None Include="vsd_win32.manifest.xml">
+      <SubType>Designer</SubType>
+    </None>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
