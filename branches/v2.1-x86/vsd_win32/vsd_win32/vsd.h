@@ -21,7 +21,89 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "vsd_hdrs.h"
 
-int SuspendAllThreads(HANDLE hProc)
+void EnumThreadsInProcess(DWORD pid, DWORD outThreadIdArray[])
+{
+	int iCount = 0;
+	unsigned int i;
+	NTSTATUS status;
+	PSYSTEM_PROCESS_INFORMATION pInfo;
+	PSYSTEM_THREAD_INFORMATION pThreads;
+	LPVOID pBuffer = NULL;
+	ULONG pBufferSize = 0x10000, ThreadCount;
+
+	pBuffer = (PSYSTEM_PROCESS_INFORMATION)malloc(pBufferSize);
+
+	if(pBuffer != NULL)
+	{
+		while ((status = NtQuerySystemInformation(SystemProcessesAndThreadsInformation, pBuffer, pBufferSize, NULL)) == STATUS_INFO_LENGTH_MISMATCH)
+		pBuffer = (PSYSTEM_PROCESS_INFORMATION)realloc(pBuffer, pBufferSize *= 2);
+
+		pInfo = (PSYSTEM_PROCESS_INFORMATION)pBuffer;
+
+		// we iterate over all the entries that NtQuerySystemInformation returned.
+		// if pInfo->NextEntryDelta is equal to 0, then, we finish the iterations
+		for(;;)
+		{
+			// if the current entry belongs to our process
+			if(pInfo->ProcessId == pid)
+			{
+				// we take the corresponding Thread information
+				ThreadCount = pInfo->ThreadCount;
+				pThreads = pInfo->Threads;
+
+				// we iterate over every single thread in the array
+				for(i = 0; i < ThreadCount; i++)
+					outThreadIdArray[i] = pThreads[i].ClientId.UniqueThread;
+			}
+
+			if(pInfo->NextEntryDelta == 0)
+				break;
+
+			pInfo = (PSYSTEM_PROCESS_INFORMATION)(((PUCHAR)pInfo) + pInfo->NextEntryDelta);
+		}
+		
+		free(pBuffer);
+	}
+}
+
+int _SuspendThread(DWORD threadId)
+{
+
+	HANDLE hThread;
+
+	hThread = OpenThread(THREAD_SUSPEND_RESUME, FALSE, threadId);
+	// before we suspend the thread, we must be sure that the thread is not
+	// already suspended, so, we first ask for its suspended count. If this value is
+	// greater than 0, then, the thread is suspended.
+	if(GetSuspendThreadCount(hThread) == 0)
+	{
+		if(hThread)
+		{
+			if(SuspendThread(hThread) == -1)
+				return RTN_ERROR;
+		}
+	}
+	
+	CloseHandle(hThread);
+	return RTN_OK;
+}
+
+int _ResumeThread(DWORD threadId)
+{
+	HANDLE hThread;
+
+	hThread = OpenThread(THREAD_SUSPEND_RESUME, FALSE, threadId);
+	if(hThread)
+	{
+		if(ResumeThread(hThread) == -1)
+			return RTN_ERROR;
+	}
+	
+	CloseHandle(hThread);
+	return RTN_OK;
+}
+
+int SuspendAllThreads(DWORD processId)
 {
 	/*
 		I'm using a static array to store the thread ids. 
@@ -30,34 +112,50 @@ int SuspendAllThreads(HANDLE hProc)
 	int result = RTN_ERROR, i = 0;
 	DWORD outThreadIdArray[MAX_THREADS] = {0};
 
-	EnumThreadsInProcess(hProc, outThreadIdArray);
+	EnumThreadsInProcess(processId, outThreadIdArray);
 	
 	while(outThreadIdArray[i] != 0)
 	{
 		result = _SuspendThread(outThreadIdArray[i]);
 		if (result != RTN_OK)
 			break;
+		i++;
 	}
 
 	return result;
 }
 
-int ResumeAllThreads(HANDLE hProc)
+int ResumeAllThreads(DWORD processId)
 {
-	int result = RTN_ERROR;
+	/*
+		I'm using a static array to store the thread ids. 
+		It would be more efficient to have a dynamic list.
+	*/
+	int result = RTN_ERROR, i = 0;
+	DWORD outThreadIdArray[MAX_THREADS] = {0};
+
+	EnumThreadsInProcess(processId, outThreadIdArray);
+	
+	while(outThreadIdArray[i] != 0)
+	{
+		result = _ResumeThread(outThreadIdArray[i]);
+		if (result != RTN_OK)
+			break;
+		i++;
+	}
+
 	return result;
 }
 
-int _SuspendProcess(HANDLE hProc)
+int _SuspendProcess(DWORD processId)
 {
-	return SuspendAllThreads(hProc);
+	return SuspendAllThreads(processId);
 }
 
-int _ResumeProcess(HANDLE hProc)
+int _ResumeProcess(DWORD processId)
 {
-	return ResumeAllThreads(hProc);
+	return ResumeAllThreads(processId);
 }
-
 
 // function definitions
 void ValidateResult(int retval)
@@ -2934,6 +3032,52 @@ BOOL CALLBACK AppDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 					MySetPriorityClass(hList, hPriorityListMenu, BELOW_NORMAL_PRIORITY_CLASS, IDM_BELOWNORMAL, currentCheckedItem);
 					break;
 
+				case IDM_SUSPENDPROCESS:
+					item = ListView_GetNextItem(hList, -1, LVNI_SELECTED);
+					if(item != -1)
+					{
+						iPid = ListView_GetPidFromItem(hList, item);
+						hProc = OpenProcess(PROCESS_SUSPEND_RESUME | PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, iPid);
+						if(hProc != NULL)
+						{
+							if((RunningOnWow64 && IsWow64(hProc)) || !RunningOnWow64)
+							{
+								_SuspendProcess(iPid);
+							}
+							else
+							{
+								MessageBox(hDlg, TEXT("The selected item is not a 32 bits process"), TEXT("Ups!"), MB_ICONERROR);
+							}
+							CloseHandle(hProc);
+						}
+						else
+							MessageBox(hDlg, TEXT("Couldn't suspend process!"), TEXT("Suspend Process"), MB_ICONERROR);
+					}
+					break;
+
+				case IDM_RESUMEPROCESS:
+					item = ListView_GetNextItem(hList, -1, LVNI_SELECTED);
+					if(item != -1)
+					{
+						iPid = ListView_GetPidFromItem(hList, item);
+						hProc = OpenProcess(PROCESS_SUSPEND_RESUME | PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, iPid);
+						if(hProc != NULL)
+						{
+							if((RunningOnWow64 && IsWow64(hProc)) || !RunningOnWow64)
+							{
+								_ResumeProcess(iPid);
+							}
+							else
+							{
+								MessageBox(hDlg, TEXT("The selected item is not a 32 bits process"), TEXT("Ups!"), MB_ICONERROR);
+							}
+							CloseHandle(hProc);
+						}
+						else
+							MessageBox(hDlg, TEXT("Couldn't resume process!"), TEXT("Resume Process"), MB_ICONERROR);
+					}
+					break;
+
 				case IDM_DELPROCESS:
 					item = ListView_GetNextItem(hList, -1, LVNI_SELECTED);
 					if(item != -1)
@@ -2941,7 +3085,7 @@ BOOL CALLBACK AppDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 						if(MessageBox(hDlg, TEXT("Are you sure you want to kill the process?"), TEXT("Terminate Process"), MB_YESNO) == IDYES)
 						{
 							iPid = ListView_GetPidFromItem(hList, item);
-							hProc = OpenProcess(PROCESS_TERMINATE, FALSE, iPid);
+							hProc = OpenProcess(PROCESS_TERMINATE | PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, iPid);
 							if(hProc != NULL)
 							{
 								if((RunningOnWow64 && IsWow64(hProc)) || !RunningOnWow64)
