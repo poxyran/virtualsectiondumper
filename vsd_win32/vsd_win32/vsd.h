@@ -21,6 +21,44 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "vsd_hdrs.h"
 
+int SuspendAllThreads(HANDLE hProc)
+{
+	/*
+		I'm using a static array to store the thread ids. 
+		It would be more efficient to have a dynamic list.
+	*/
+	int result = RTN_ERROR, i = 0;
+	DWORD outThreadIdArray[MAX_THREADS] = {0};
+
+	EnumThreadsInProcess(hProc, outThreadIdArray);
+	
+	while(outThreadIdArray[i] != 0)
+	{
+		result = _SuspendThread(outThreadIdArray[i]);
+		if (result != RTN_OK)
+			break;
+	}
+
+	return result;
+}
+
+int ResumeAllThreads(HANDLE hProc)
+{
+	int result = RTN_ERROR;
+	return result;
+}
+
+int _SuspendProcess(HANDLE hProc)
+{
+	return SuspendAllThreads(hProc);
+}
+
+int _ResumeProcess(HANDLE hProc)
+{
+	return ResumeAllThreads(hProc);
+}
+
+
 // function definitions
 void ValidateResult(int retval)
 {
@@ -2628,6 +2666,57 @@ HANDLE GetProcHandleFromSelectedItem(HWND hlist, DWORD Access)
 	return hProc;
 }
 
+void UnckeckOldItem(HMENU hMenu, int Current)
+{
+
+}
+
+int CheckItemInContexMenu(HMENU hMenu, DWORD Priority)
+{
+	int checked;
+	switch(Priority)
+	{
+		case NORMAL_PRIORITY_CLASS:
+			CheckMenuItem(hMenu, IDM_NORMAL, MF_CHECKED);
+			checked = IDM_NORMAL;
+			break;
+		case BELOW_NORMAL_PRIORITY_CLASS:
+			CheckMenuItem(hMenu, IDM_BELOWNORMAL, MF_CHECKED);
+			checked = IDM_BELOWNORMAL;
+			break;
+		case ABOVE_NORMAL_PRIORITY_CLASS:
+			CheckMenuItem(hMenu, IDM_ABOVENORMAL, MF_CHECKED);
+			checked = IDM_ABOVENORMAL;
+			break;
+		case HIGH_PRIORITY_CLASS:
+			CheckMenuItem(hMenu, IDM_HIGH, MF_CHECKED);
+			checked = IDM_HIGH;
+			break;
+		case IDLE_PRIORITY_CLASS:
+			CheckMenuItem(hMenu, IDM_IDLE, MF_CHECKED);
+			checked = IDM_IDLE;
+			break;
+		case REALTIME_PRIORITY_CLASS:
+			CheckMenuItem(hMenu, IDM_REALTIME, MF_CHECKED);
+			checked = IDM_REALTIME;
+			break;
+		default: break;
+	}
+	return checked;
+}
+
+void MySetPriorityClass(HWND hMenuList, HMENU hPriorityMenuList, int priority, int iToCheck, int cItem)
+{
+	HANDLE hProc;
+	hProc = GetProcHandleFromSelectedItem(hMenuList, PROCESS_QUERY_INFORMATION | PROCESS_SET_INFORMATION);
+	if(hProc != NULL)
+	{
+		SetPriorityClass(hProc, priority);
+		CheckMenuItem(hPriorityMenuList, iToCheck, BST_CHECKED);
+		CheckMenuItem(hPriorityMenuList, cItem, BST_UNCHECKED);
+		CloseHandle(hProc);
+	}
+}
 BOOL CALLBACK AppDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
 	DWORD SelItem, iPid;
@@ -2804,20 +2893,45 @@ BOOL CALLBACK AppDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 			hvsdini = CreateIniFile(szCurrentDir);
 			return 0;
 
+		case WM_INITMENUPOPUP:
+			if ((HMENU)wParam == hPriorityListMenu)
+			{
+				hProc = GetProcHandleFromSelectedItem(hList, PROCESS_QUERY_INFORMATION | PROCESS_SET_INFORMATION);
+				currentCheckedItem = CheckItemInContexMenu(hPriorityListMenu, GetPriorityClass(hProc));
+			}
+			break;
+
 		case WM_CONTEXTMENU:
+			//hProc = GetProcHandleFromSelectedItem(hList, PROCESS_QUERY_INFORMATION | PROCESS_SET_INFORMATION);
+			//CheckItemInContexMenu(hPriorityListMenu, GetPriorityClass(hProc));
+
 			GetCursorPos(&pt);
 			SelItem = TrackPopupMenuEx(hMainMenu, TPM_RETURNCMD, pt.x, pt.y, hDlg, NULL);
-
+			
 			switch(SelItem)
 			{
+				case IDM_NORMAL:
+					MySetPriorityClass(hList, hPriorityListMenu, NORMAL_PRIORITY_CLASS, IDM_NORMAL, currentCheckedItem);
+					break;
+
+				case IDM_REALTIME:
+					MySetPriorityClass(hList, hPriorityListMenu, REALTIME_PRIORITY_CLASS, IDM_REALTIME, currentCheckedItem);
+					break;
+
+				case IDM_HIGH:
+					MySetPriorityClass(hList, hPriorityListMenu, HIGH_PRIORITY_CLASS, IDM_HIGH, currentCheckedItem);
+					break;
+
+				case IDM_ABOVENORMAL:
+					MySetPriorityClass(hList, hPriorityListMenu, ABOVE_NORMAL_PRIORITY_CLASS, IDM_ABOVENORMAL, currentCheckedItem);
+					break;
+
+				case IDM_IDLE:
+					MySetPriorityClass(hList, hPriorityListMenu, IDLE_PRIORITY_CLASS, IDM_IDLE, currentCheckedItem);
+					break;
+
 				case IDM_BELOWNORMAL:
-					hProc = GetProcHandleFromSelectedItem(hList, PROCESS_QUERY_INFORMATION | PROCESS_SET_INFORMATION);
-					if(hProc != NULL)
-					{
-						if(GetPriorityClass(hProc) != IDM_BELOWNORMAL)
-							SetPriorityClass(hProc, IDM_BELOWNORMAL);
-						CloseHandle(hProc);
-					}
+					MySetPriorityClass(hList, hPriorityListMenu, BELOW_NORMAL_PRIORITY_CLASS, IDM_BELOWNORMAL, currentCheckedItem);
 					break;
 
 				case IDM_DELPROCESS:

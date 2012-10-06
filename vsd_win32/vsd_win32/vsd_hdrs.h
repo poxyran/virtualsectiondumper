@@ -117,7 +117,7 @@ typedef enum _KWAIT_REASON
 #define IDM_SELECTALL 10003
 #define IDM_REFRESH 10004
 #define IDM_DELPROCESS 10005
-#define IDM_PATCH_PROCESS 10106
+#define IDM_PATCH_PROCESS 10111
 #define IDM_LIST_MODULES 10123
 #define IDM_LIST_HANDLES 10008
 #define IDM_LIST_THREADS 10009
@@ -684,7 +684,7 @@ HANDLE GetProcHandleFromSelectedItem(HWND hlist, DWORD Access);
 PVOID GetLibraryProcAddress(PSTR LibraryName, PSTR ProcName);
 
 // global variables
-int item;
+int item, currentCheckedItem;
 BOOL RunningOnWow64, HasPrivileges, bGlobalPastePEHeader, bGlobalFixHeader, DumpingModule = FALSE;
 HMODULE hMods[MAX_MODULES];
 HANDLE hvsdini;
