@@ -113,6 +113,7 @@
     <ResourceCompile Include="vsd_gui.rc" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="TODO.txt" />
     <None Include="vsd_win32.manifest.xml">
       <SubType>Designer</SubType>
     </None>

@@ -42,5 +42,8 @@
     <None Include="vsd_win32.manifest.xml">
       <Filter>Resource Files</Filter>
     </None>
+    <None Include="TODO.txt">
+      <Filter>Source Files</Filter>
+    </None>
   </ItemGroup>
 </Project>
