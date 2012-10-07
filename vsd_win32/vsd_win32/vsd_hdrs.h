@@ -686,7 +686,7 @@ PVOID GetLibraryProcAddress(PSTR LibraryName, PSTR ProcName);
 
 // global variables
 int item, currentCheckedItem;
-BOOL RunningOnWow64, HasPrivileges, bGlobalPastePEHeader, bGlobalFixHeader, DumpingModule = FALSE;
+BOOL RunningOnWow64, HasPrivileges, bGlobalPastePEHeader, bGlobalFixHeader, DumpingModule = FALSE, resumeProcess = FALSE;
 HMODULE hMods[MAX_MODULES];
 HANDLE hvsdini;
 HWND hList, hRegionsLV, hThreadsLV, hHandlesLV, hModulesLV, ExcludeWow64CheckBox = NULL;
@@ -699,7 +699,7 @@ HINSTANCE hGlobalInstance;
 DWORD iGlobalPid = -1, RegionAddr = -1, RegionSize = -1, pIds[MAX_PIDS];
 LONG wndproc;
 char szIniName[] = {"\\vsd_config.ini"};
-char szGlobalModuleName[MAX_PATH], szCaption[MAX_PATH], szCurrentDir[MAX_PATH];;
+char szGlobalModuleName[MAX_PATH], szCaption[MAX_PATH], szCurrentDir[MAX_PATH], szUpdateVsdInitPath[MAX_PATH];
 
 
 // global state variables for sorting

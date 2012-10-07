@@ -2820,7 +2820,7 @@ BOOL CALLBACK AppDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 	DWORD SelItem, iPid;
 	HANDLE hProc;
 	char szAddr[9], szSize[9];
-	int retval;
+	int retval, MODE_AUTO, MODE_START;
 
 	switch(uMsg)
 	{
@@ -2989,6 +2989,16 @@ BOOL CALLBACK AppDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 			// creates the .ini file for vsd options
 			GetCurrentDirectory(MAX_PATH, szCurrentDir);
 			hvsdini = CreateIniFile(szCurrentDir);
+
+			// check for updatevsd options
+			GetCurrentDirectory(MAX_PATH, szUpdateVsdInitPath);
+			strcat_s(szUpdateVsdInitPath, MAX_PATH, "\\updatevsd.ini");
+
+			MODE_AUTO = ReadIntFromIniFile(szUpdateVsdInitPath, "UPDATE", "MODE_AUTO");
+			MODE_START = ReadIntFromIniFile(szUpdateVsdInitPath, "UPDATE", "MODE_START");
+
+			if(MODE_START || MODE_AUTO)
+				ShellExecute(hDlg, TEXT("open"), TEXT("updatevsd.exe"), NULL, NULL, SW_SHOWNORMAL);
 			return 0;
 
 		case WM_INITMENUPOPUP:
@@ -3270,7 +3280,24 @@ BOOL CALLBACK AppDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 								BOOL bPasteHeader = IsDlgButtonChecked(hDlg, PASTEPEHEADER);
 								BOOL bFixHeader = IsDlgButtonChecked(hDlg, FIXPEHEADER);
 
+								if(ReadIntFromIniFile(szCurrentDir, "VSDOPTIONS", "SUSPEND_BEFORE_DUMPING"))
+								{
+									if(GetCurrentProcessId() != iPid)
+									{
+										_SuspendProcess(iPid);
+										resumeProcess = TRUE;
+									}
+									else
+									{
+										MessageBox(hDlg, TEXT("WARNING: SUSPEND_BEFORE_DUMPING is enable. This option can\'t be enable when dumping VSD process. Dumping process without suspending it."),
+											TEXT("Warning!"), MB_ICONWARNING);
+									}
+								}
+
 								retval = DumpMemoryRegion((void*)strtol(szAddr, NULL, 16), strtol(szSize, NULL, 16), DUMPFULL, bPasteHeader, bFixHeader,  hDlg);
+
+								if(resumeProcess)
+									_ResumeProcess(iPid);
 
 								ValidateResult(retval);
 							}
