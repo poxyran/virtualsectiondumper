@@ -2989,6 +2989,7 @@ BOOL CALLBACK AppDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 			// creates the .ini file for vsd options
 			GetCurrentDirectory(MAX_PATH, szCurrentDir);
 			hvsdini = CreateIniFile(szCurrentDir);
+			WriteIntToIniFile(szCurrentDir, "VSDOPTIONS", "SUSPEND_BEFORE_DUMPING", 0);
 
 			// check for updatevsd options
 			GetCurrentDirectory(MAX_PATH, szUpdateVsdInitPath);
