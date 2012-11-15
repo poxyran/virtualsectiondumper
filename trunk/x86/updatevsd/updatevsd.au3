@@ -1,6 +1,4 @@
 #cs
-	$Id$
-
 	UpdateVSD v0.1
 	
 	Copyright (C) 2012 UlisesSoft http://web.ulisessoft.info
@@ -180,7 +178,14 @@ If ($MODE_START = 1) Or ($MODE_AUTO = 1) Then
 		IniWrite("updatevsd.ini", "UPDATE", "AMOUNT_UPDATE", 0)
 		$AMOUNT_UPDATE = 0
 	EndIf
-	Start()
+	;Start()
+
+	_proxy()
+	_carpetas()
+	_online()
+	_local()
+	_compare()
+
 Else
 	_proxy()
 	_carpetas()
@@ -442,10 +447,24 @@ Func _compare()
 				$upd = $upd + 1
 				$z = $z + 1
 
+;~ 				If $name = "vsd_win32.exe" Then
+;~ 					If ProcessExists("vsd_win32.exe") Then
+;~ 						$run = 1
+;~ 						ProcessClose("vsd_win32.exe")
+;~ 					EndIf
+;~ 				EndIf
+
 				If $name = "vsd_win32.exe" Then
 					If ProcessExists("vsd_win32.exe") Then
+
+						;$option = MsgBox(32 + 1, $tname, "close application and update or cancel update?")
+						;If $option = 1 Then
 						$run = 1
-						ProcessClose("vsd_win32.exe")
+						;ProcessClose("vsd_win32.exe")
+;~ 						Else
+;~ 							Exit
+;~ 						EndIf
+
 					EndIf
 				EndIf
 
@@ -479,16 +498,20 @@ Func _compare()
 
 		$x = $new + $upd
 
-		If $QUESTION = 0 And $MODE_AUTO = 0 Then
-			TrayTip("clears", "", 0)
-			GUISetState(@SW_HIDE, $Gui_start)
-			$option = MsgBox(32 + 4, $tname, $x & " new files were found" & @CR & @CR & $ListUpdate & @CR & "¿Do you want to update the files?")
-			GUISetState(@SW_SHOW, $Gui_start)
-		Else
-			$option = 6
-		EndIf
+		;If $QUESTION = 0 And $MODE_AUTO = 0 Then
+		TrayTip("clears", "", 0)
+		;	GUISetState(@SW_HIDE, $Gui_start) ;Close vsd_win32.exe and Update files
+		$message = "¿Do you want to update the files?"
+		If $run = 1 Then $message = "¿Close vsd_win32.exe and update the files?"
+		$option = MsgBox(32 + 4, $tname, $x & " new files were found" & @CR & @CR & $ListUpdate & @CR & $message)
+		;	GUISetState(@SW_SHOW, $Gui_start)
+		;Else
+		;	$option = 6
+		;EndIf
 
 		If $option = 6 Then
+
+			If $run = 1 Then ProcessClose("vsd_win32.exe")
 
 			For $a = 1 To $x
 
@@ -960,11 +983,11 @@ Func _ConsoleAlloc($Dll = -1)
 	Return $Result[0] <> 0
 EndFunc   ;==>_ConsoleAlloc
 
-Func _ConsolePause($Message = Default, $Dll = -1)
-	If $Message = Default Then
+Func _ConsolePause($message = Default, $Dll = -1)
+	If $message = Default Then
 		RunWait(@ComSpec & " /c PAUSE", @ScriptDir, Default, 0x10)
 	Else
-		_ConsoleWrite($Message, $Dll)
+		_ConsoleWrite($message, $Dll)
 		RunWait(@ComSpec & " /c PAUSE >nul", @ScriptDir, Default, 0x10)
 	EndIf
 EndFunc   ;==>_ConsolePause
@@ -979,4 +1002,5 @@ Func _ConsoleFree($Dll = -1)
 
 	Return $Result[0] <> 0
 EndFunc   ;==>_ConsoleFree
+
 
