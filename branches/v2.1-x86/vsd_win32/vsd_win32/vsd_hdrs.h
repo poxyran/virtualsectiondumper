@@ -647,6 +647,7 @@ int EnumProcessHandles(HWND, bool);
 int MyEnumProcessModules(HWND, HWND);
 int EnumProcessThreads(HWND);
 int MyDumpModuleFunction(void*, DWORD, char*, int, BOOL, BOOL, HWND);
+int ReadIntFromIniFile(char* szPathToIni, char* AppName, char* Key);
 int DumpMemoryRegion(void*, DWORD, int, BOOL, BOOL, HWND);
 int ListView_GetPidFromItem(HWND, int);
 int AdjustPrivileges(void);
