@@ -236,6 +236,20 @@ BOOL CALLBACK PartialDumpProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam
 										{
 											RegionSize = strtol(szText, NULL, 16);
 
+											if(ReadIntFromIniFile(szCurrentDir, "VSDOPTIONS", "SUSPEND_BEFORE_DUMPING"))
+											{
+												if(GetCurrentProcessId() != iGlobalPid)
+												{
+													_SuspendProcess(iGlobalPid);
+													resumeProcess = TRUE;
+												}
+												else
+												{
+													MessageBox(hDlg, TEXT("WARNING: SUSPEND_BEFORE_DUMPING is enable. This option can\'t be enable when dumping VSD process. Dumping process without suspending it."),
+														TEXT("Warning!"), MB_ICONWARNING);
+												}
+											}
+
 											if(DumpingModule)
 											{
 												retval = MyDumpModuleFunction((void*)RegionAddr, RegionSize, szGlobalModuleName, DUMPPARTIAL, FALSE, FALSE, hDlg);
@@ -247,6 +261,12 @@ BOOL CALLBACK PartialDumpProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam
 
 											// test to see if there was an error
 											ValidateResult(retval);
+
+											if(resumeProcess)
+											{
+												resumeProcess = FALSE;
+												_ResumeProcess(iGlobalPid);
+											}
 										}
 										else
 										{
@@ -3298,7 +3318,10 @@ BOOL CALLBACK AppDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 								retval = DumpMemoryRegion((void*)strtol(szAddr, NULL, 16), strtol(szSize, NULL, 16), DUMPFULL, bPasteHeader, bFixHeader,  hDlg);
 
 								if(resumeProcess)
+								{
 									_ResumeProcess(iPid);
+									resumeProcess = FALSE;
+								}
 
 								ValidateResult(retval);
 							}
@@ -3995,10 +4018,30 @@ BOOL CALLBACK EnumModulesDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lPa
 								ListView_GetItemText(hModulesLV, item, MODULE_IMAGEBASE_COL, szAddr, sizeof(szAddr));
 								ListView_GetItemText(hModulesLV, item, MODULE_IMAGESIZE_COL, szSize, sizeof(szSize));
 								ListView_GetItemText(hModulesLV, item, MODULE_NAME_COL, ModuleName, sizeof(ModuleName));
+								
+								if(ReadIntFromIniFile(szCurrentDir, "VSDOPTIONS", "SUSPEND_BEFORE_DUMPING"))
+								{
+									if(GetCurrentProcessId() != iGlobalPid)
+									{
+										_SuspendProcess(iGlobalPid);
+										resumeProcess = TRUE;
+									}
+									else
+									{
+										MessageBox(hDlg, TEXT("WARNING: SUSPEND_BEFORE_DUMPING is enable. This option can\'t be enable when dumping VSD process. Dumping process without suspending it."),
+											TEXT("Warning!"), MB_ICONWARNING);
+									}
+								}
 
 								retval = MyDumpModuleFunction((void*)strtol(szAddr, NULL, 16), strtol(szSize, NULL, 16), ModuleName, DUMPFULL, bGlobalPastePEHeader, bGlobalFixHeader,  hDlg);
 
 								ValidateResult(retval);
+
+								if(resumeProcess)
+								{
+									resumeProcess = FALSE;
+									_ResumeProcess(iGlobalPid);
+								}
 							}
 							else
 							{
@@ -4131,7 +4174,7 @@ BOOL CALLBACK VSDOptionsProc(HWND hWin, UINT uMsg, WPARAM wParam, LPARAM lParam)
 			switch(wParam)
 			{
 				case CONFIGURE_PROXY:
-					ShellExecute(hWin, TEXT("open"), TEXT("updatevsd.exe"), TEXT("/setting"), NULL, SW_SHOWNORMAL);
+					ShellExecute(hWin, TEXT("open"), TEXT("updatevsd.exe"), TEXT("/settings"), NULL, SW_SHOWNORMAL);
 					break;
 
 				case IDCANCEL:
@@ -4417,8 +4460,28 @@ BOOL CALLBACK DumpRegionProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 							{
 								if(IsValidHexString(Size))
 								{
+									if(ReadIntFromIniFile(szCurrentDir, "VSDOPTIONS", "SUSPEND_BEFORE_DUMPING"))
+									{
+										if(GetCurrentProcessId() != iGlobalPid)
+										{
+											_SuspendProcess(iGlobalPid);
+											resumeProcess = TRUE;
+										}
+										else
+										{
+											MessageBox(hDlg, TEXT("WARNING: SUSPEND_BEFORE_DUMPING is enable. This option can\'t be enable when dumping VSD process. Dumping process without suspending it."),
+												TEXT("Warning!"), MB_ICONWARNING);
+										}
+									}
+
 									retval = DumpMemoryRegion((void*)strtol(Address, NULL, 16), strtol(Size, NULL, 16), DUMPREGION, FALSE, FALSE, hDlg);
 									ValidateResult(retval);
+
+									if(resumeProcess)
+									{
+										_ResumeProcess(iGlobalPid);
+										resumeProcess = FALSE;
+									}
 								}
 								else
 								{
