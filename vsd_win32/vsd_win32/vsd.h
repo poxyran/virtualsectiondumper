@@ -4242,7 +4242,7 @@ BOOL CALLBACK EnumHandlesDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lPa
 			switch(SetItem)
 			{
 				case IDM_COPY2CLIPBOARD:
-					CopyDataToClipBoard(hHandlesLV, 2);
+					CopyDataToClipBoard(hHandlesLV, 3);
 					break;
 
 				case IDM_SELECTALL:
