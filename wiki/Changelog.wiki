@@ -1,4 +1,4 @@
-#summary Changelog
+#summary Changelog for VSD x86 & x64
 
 {{{
 v2.0 x86 - 01/04/2012
