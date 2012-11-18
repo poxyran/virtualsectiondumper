@@ -1,24 +1,3 @@
-/* 
-$Id$
-
-Virtual Section Dumper v2.0 x86
-
-Copyright (C) 2012 +NCR/CRC! [ReVeRsEr] http://crackinglandia.blogspot.com
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
-
 #ifndef IDC_STATIC
 #define IDC_STATIC (-1)
 #endif
@@ -32,14 +11,18 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define MODULESDLG                              112
 #define THREADSDLG                              114
 #define PATCHPROCESSDLG                         116
+#define VSDOPTIONSDLG                           118
 #define LV_REGIONS                              1000
+#define SUSPEND_BEFORE_DUMPING					1000
 #define TOTAL_MODULES                           1000
 #define ADDRESS_EDIT                            1001
+#define IGNORE_UNNAMED_OBJECTS                  1001
 #define MODULESLV                               1001
 #define PASTEPEHEADER                           1001
 #define BT_CLOSE                                1002
 #define HANDLESLV                               1002
 #define LV_PROCESSES                            1002
+#define CONFIGURE_PROXY                         1003
 #define DUMP_REGION                             1003
 #define FIXPEHEADER                             1003
 #define COMBOXDUMPPARTIAL                       1004
@@ -70,3 +53,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define IDM_HANDLES1                            40002
 #define IDM_MODULES1                            40003
 #define IDM_THREADS1                            40004
+#define IDM_CHECK_FOR_UPDATE1                   40005
+#define IDM_HELP1                               40006
+#define IDM_VSD_HOME_PAGE1                      40007
+#define IDM_CONTACT_THE_AUTHOR1                 40008
+#define IDM_SET_OPTIONS                         40010
