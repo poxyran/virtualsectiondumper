@@ -1,4 +1,5 @@
 #summary Usage of VSD
+#labels Featured
 
 == How to use VSD? ==
 
