@@ -83,4 +83,8 @@ You can use this feature *ONLY* when running with *Administrative privileges* (V
  * Refresh: refreshes the sections list.
 
  * Close: closes the sections window.
- 
+  
+== Project Information ==
+
+_VSD_ was tested under Windows XP Professional SP3, Windows 7 Ultimate (x86 & x64), wine under Ubuntu 11.04 x64.
+
