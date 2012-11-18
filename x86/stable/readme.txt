@@ -5,7 +5,7 @@
     |     |'....|'  .||...|'
 
 --
-Virtual Section Dumper v2.0 x86
+Virtual Section Dumper v2.1 x86
 --
 
 1. Introduction
@@ -78,25 +78,11 @@ You can use this feature ONLY when running with Administrative privileges (Vista
 
 4. [ What's new? ]
 
-In this new version you can:
-
-* Get a list of all modules in a running process.
-	* Dump Full over a specific module.
-	* Dump Partial over a specific module.
-	* Sort modules list by Name, ImageBase or ImageSize.
-
-* Get a list of all opened handles.
-
-* Get a list of all threads.
-	* You can terminate, suspend or resume a thread.
-	* Sort the thread list by TID, Priority, TEB Address, Start Address or State.
-
-* Patch.
-	* You can search and replace bytes on memory in a running process.
+See changelog.txt for a complete list of changes.
 	
 5. [ License ]
 
-VSD is distributed under the GNU GPL v3 license. Please, read the LICENSE file included in the .zip.
+VSD is distributed under the GNU GPL v3 license. Please, read the LICENSE file included in the VSD directory.
 
 6. [ Bugs, Suggestions, Comments, Features, Whatever ... ]
 
@@ -108,7 +94,7 @@ Any comment to improve the tool is welcome! :)
 
 7. [ Project information ]
 
-VSD was tested under Windows XP Professional SP3, Windows 7 Ultimate (x86 & x64), wine under Ubuntu 11.04 x64.
+VSD was tested under Windows XP Professional SP3, Windows 7 Ultimate (x86 & x64), wine under Ubuntu 11.04 x64, Ubuntu 11.10 x64 and Debian 6 x64.
 
 You can visit the project at: http://code.google.com/p/virtualsectiondumper
 
@@ -118,6 +104,7 @@ As always, I have to thank a lot of people without whom this tool had not seen t
 
 Many, many thanks to:
 * marciano: for being my beta tester and report a lot of bugs and features.
+* UlisesSoft: for UpdateVSD.
 * MCKSys Argentina: for being my other beta tester in VSD 1.0.
 * Guan De Dio: for his opinions to improve each of my tools :P
 * Nacho_dj: for being a friend in ARTeam and supporting me.
