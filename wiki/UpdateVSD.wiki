@@ -2,7 +2,7 @@
 
 = UpdateVSD for VSD =
 
-_UpdateVSD_ was created by *UlisesSoft*. It is a tool to update files from the *Virtual Section Dumper* project.
+_UpdateVSD_ was created by *!UlisesSoft*. It is a tool to update files from the *Virtual Section Dumper* project.
 
 Selecting the _Options_ -  _Set_ _Options_ menu from VSD will show you the configuration window for _UpdateVSD_.
 
@@ -21,4 +21,3 @@ If you select the _Update_ _manually_ or the _Update_ _when_ _starting_ _program
 === Proxy tab ===
 
 If you are behind a proxy, using the options in this tab, you can configure the proxy settings to be able to update VSD.
-
