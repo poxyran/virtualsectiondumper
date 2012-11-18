@@ -1,6 +1,15 @@
 #summary Changelog for VSD x86 & x64
 
 {{{
+v2.1 x86 - 18/11/2012
+--
+
+- Added "Ignore unnamed objects" in the window handles.
+- Added "Set Priority" feature in order to set the priority of a given process.
+- Added "Suspend process" and "Resume process" features.
+- Added "Suspend all threads before dumping". Using this option you can suspend the execution of a given process before to dump it.
+- Added updatevsd.exe.
+
 v2.0 x86 - 01/04/2012
 --
 
