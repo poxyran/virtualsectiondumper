@@ -1,19 +1,20 @@
 #summary Changelog for VSD x86 & x64
 
-v2.0 x86 - 01/04/2012[BR]
---[BR]
+{{{
+v2.0 x86 - 01/04/2012
+--
 
-- Added a menu bar.[BR]
-- Added a module list viewer.[BR]
-- Added Dump Full and Dump Partial over a specific module.[BR]
-- Added sorting feature in the module list viewer.[BR]
-- Added a handle list viewer.[BR]
-- Added sorting feature in the handle list viewer.[BR]
-- Added a thread list viewer.[BR]
-- Added Resume, Terminate and Suspend functions in the thread list viewer.[BR]
-- Added the "Patch" feature.[BR]
-- Bugfixes in some functions.[BR]
-- Code refactoring in some functions. The code still needs a lot of improvements :P[BR]
+- Added a menu bar.
+- Added a module list viewer.
+- Added Dump Full and Dump Partial over a specific module.
+- Added sorting feature in the module list viewer.
+- Added a handle list viewer.
+- Added sorting feature in the handle list viewer.
+- Added a thread list viewer.
+- Added Resume, Terminate and Suspend functions in the thread list viewer.
+- Added the "Patch" feature.
+- Bugfixes in some functions.
+- Code refactoring in some functions. The code still needs a lot of improvements :P
 
 v1.1 x86 - 16/02/2012
 --
@@ -24,3 +25,4 @@ v1.0 x86 & x64 - 16/02/2012
 --
 
 - First stable release
+}}}
